@@ -6,6 +6,7 @@ node_js:
 services:
   - docker
 before_install:
+  - sudo service mysql stop
   - docker pull mysql:5
   - docker run -d -p 3306:3306 -e MYSQL_ROOT_PASSWORD=unittest mysql:5
   - sleep 5
