@@ -177,7 +177,178 @@ Note: You must call `connection.release();` when you have finished using the con
 
 ## Events
 
-This class does not emit events
+This class does not emit events.
+
+
+# CrudService
+
+Base class for building services based on a MySQL table. The idea of using CrudService is to:
+ * Stop duplicating logic across every single service you have to write (CRUDL)
+ * Automatically handle and report errors on common operations so you don't need to in the business logic
+ * Provide base functions that can be optionally used in the service when exposed as whatever names you like
+   * This also allows you to hook-in logic on various events (e.g. when service.delete is called, do something special)
+ * Conceal deleted rows without actually deleting them
+   * We don't like to permanently delete data. Instead, we like to leave tombstones behind so we can audit before cleaning up later. This is also very handy for syncing to data lakes. Do you know what rows were deleted in the last 15 minutes?
+   * When a row is deleted, its `status` column is just set to `dead`. 
+   * The `_find`, `_retrieve`, `_bulkUpdate`, `_bulkDelete` and `_bulkPermanentlyDelete` helpers automatically deal with dead rows, pretending like they were really deleted.
+
+Note: you should extend this class to make it useful!
+
+## Properties
+* `service.app` – (read-only) The OkanjoApp instance provided when constructed
+* `service.service` – (read-only) The MySQLService instance managing the connection pool
+* `service.database` – (read-only) The string name of the database the table is in 
+* `service.table` – (read-only) The string name of the table this service is treating as a resource collection
+* `service.idField` – (read-only) The field that is expected to be unique, like a single-column primary key.
+* `service.statusField` – (read-only) The field that is used for row status, such as `dead` statuses
+* `service.updatedField` – (read-only) The field that is automatically set to `new Date()` when updating
+* `service._createRetryCount` – (read-only) How many times a `_createWithRetry` method can attempt to create a doc before giving up 
+* `service._modifiableKeys` – (read-only) What column names are assumed to be safe to copy from user-data
+* `service._deletedStatus` – (read-only) The status to set docs to when "deleting" them
+* `service._concealDeadResources` – (read-only) Whether this service should actively prevent "deleted" (status=dead) resources from returning in _retrieve and _find  
+
+## Methods
+
+### `new CrudService(app, options)`
+Creates a new instance. Ideally, you would extend it and call it via `super(app, options)`.
+* `app` – The OkanjoApp instance to bind to
+* `options` – Service configuration options
+  * `options.service` – (Required) The MySQLService instance managing the connection pool
+  * `options.database` – (Optionalish) The string name of the database the table. Defaults to `service.config.database` if not defined.
+  * `options.table` – (Required) The string name of the table this service is managing
+  * `options.idField` – (Optional) The field that is expected to be unique, like a single-column primary key. Defaults to `id`.
+  * `options.statusField` – (Optional) The field that is used for row status, such as `dead` statuses. Defaults to `status`.
+  * `options.updatedField` – (Optional) The field that is automatically set to `new Date()` when updating. Defaults to `updated`.
+  * `options.createRetryCount` – (Optional) How many times a `_createWithRetry` method can attempt to create a doc before giving up. Defaults to `3`.
+  * `options.modifiableKeys` – (Optional) What column names are assumed to be safe to copy from user-data. Defaults to `[]`.
+  * `options.deletedStatus` – (Optional) The status to set docs to when "deleting" them. Defaults to `dead`.
+  * `options.concealDeadResources` – (Optional) Whether this service should actively prevent "deleted" (status=dead) resources from returning in `_retrieve`, `_find`, `_bulkUpdate`, `_bulkDelete`, and `_bulkDeletePermanently`. Defaults to `true`.
+
+### `_create(data, callback, [suppressCollisionError])`
+Creates a new row.
+* `data` – The row object to store
+* `callback(err, doc)` – Function fired when completed
+  * `err` – Error, if occurred
+  * `doc` – The row that was created
+* `suppressCollisionError` - Internal flag to suppress automatically reporting the error if it is a collision
+
+Returns the underlying MySQL query.
+
+### `_createWithRetry(data, objectClosure, callback, [attempt])`
+Creates a new row after calling the given object closure. This closure is fired again (up to `service._createRetryCount` times) in the event there is a collision. 
+This is useful when you store rows that have unique fields (e.g. an API key) that you can regenerate in that super rare instance that you collide
+* `data` – The row object to store
+* `objectClosure(data, attempt)` – Function fired before saving the new row. Set changeable, unique properties here
+  * `data` – The row object to store
+  * `attempt` – The attempt number, starting at `0`
+* `callback(err, doc)` – Function fired when completed
+  * `err` – Error, if occurred
+  * `doc` – The new row that was created
+* `attempt` – The internal attempt number (will increase after collisions)
+
+Returns the underlying MySQL query.
+
+### `_retrieve(id, callback)`
+Retrieves a single row from the table.
+* `id` – The id of the row.
+* `callback(err, doc)` – Function fired when completed
+  * `err` – Error, if occurred
+  * `doc` – The row if found or `null` if not found
+  
+Returns the underlying MySQL query.
+  
+### `_find(criteria, [options], callback)`
+Finds rows matching the given criteria. Supports pagination, field selection and more!
+* `criteria` – Object with field-value pairs. Supports some special [mongo-like operators](#Special operators)
+* `options` – (Optional) Additional query options
+  * `options.skip` – Offsets the result set by this many records (pagination). Default is unset.  
+  * `options.take` – Returns this many records (pagination). Default is unset.
+  * `options.fields` – Returns only the given fields (same syntax as mongo selects, e.g. `{ field: 1, exclude: 0 }` ) Default is unset.
+  * `options.sort` – Sorts the results by the given fields (same syntax as mongo sorts, e.g. `{ field: 1, reverse: -1 }`). Default is unset.
+  * `options.conceal` – Whether to conceal dead resources. Default is `true`. 
+  * `options.mode` – (Internal) Query mode, used to toggle query modes like SELECT COUNT(*) queries
+* `callback(err, rows)` – Fired when completed
+  * `err` – Error, if occurred
+  * `docs` – The array of rows returned or `[]` if none found.
+  
+Returns the underlying MySQL query.
+  
+#### Special operators
+Mongo uses a JSON-like query syntax that is robust and easy to use. MySQL uses SQL, which means translating from JSON isn't wonderful.
+Instead, we opted to support some mongo-like operators for consistency with our okanjo-app-mongo version of CrudService.
+
+* `{ field: value }` – Equal – Translates to `WHERE field = value`
+* `{ field: [ values... ]` – IN – Translates to `WHERE field IN (values...)`
+* `{ field: { $ne: value } }` - Not-Equal – Translates to `WHERE field != value`
+* `{ field: { $ne: [ values... ] } }` - Not-IN– Translates to `WHERE field NOT IN (values...)`
+* `{ field: { $gt: value } }` - Greater-Than – Translates to `WHERE field > value`
+* `{ field: { $gte: value } }` - Greater-Than-Or-Equal – Translates to `WHERE field >= value`
+* `{ field: { $lt: value } }` - Less-Than – Translates to `WHERE field < value`
+* `{ field: { $lte: value } }` - Less-Than-Or-Equal – Translates to `WHERE field <= value`
+
+### `_count(criteria, [options], callback)`
+Counts the number of matched records.
+* `criteria` – Object with field-value pairs. Supports some special [mongo-like operators](#Special operators)
+* `options` – (Optional) Additional query options
+  * `options.conceal` – Whether to conceal dead resources. Default is `true`.
+* `callback(err, count)` – Fired when completed
+  * `err` – Error, if occurred
+  * `count` – The number of matched rows or `0` if none found.
+
+### `_update(row, [data], callback)`
+Updates the given row and optionally applies user-modifiable fields, if service is configured to do so.
+* `doc` – The row to update. Must include configured id field.  
+* `data` – (Optional) Additional pool of key-value fields. Only keys that match `service._modifiableKeys` will be copied if present. Useful for passing in a request payload and copying over pre-validated data as-is.  
+* `callback(err, res)` – Fired when completed
+  * `err` – Error, if occurred
+  * `res` – The MySQL response. Contains properties like `res.affectedRows` and `res.changedRows`.
+  
+### `_bulkUpdate(criteria, data, [options], callback)`
+Updates all rows matching the given criteria with the new column values.
+* `criteria` – Object with field-value pairs. Supports some special [mongo-like operators](#Special operators)
+* `data` – Field-value pairs to set on matched rows
+* `options` – (Optional) Additional query options
+  * `options.conceal` – Whether to conceal dead resources. Default is `true`.
+* `callback(err, res)` – Fired when completed
+  * `err` – Error, if occurred
+  * `res` – The MySQL response. Contains properties like `res.affectedRows` and `res.changedRows`.
+  
+### `_delete(row, callback)`
+Fake-deletes a row from the table. In reality, it just sets its status to `dead` (or whatever the value of `service._deletedStatus` is).
+* `doc` – The row to delete. Must include configured id field.  
+* `callback(err, res)` – Fired when completed
+  * `err` – Error, if occurred
+  * `res` – The MySQL response. Contains properties like `res.affectedRows` and `res.changedRows`.
+  
+### `_bulkDelete(criteria, [options], callback)`
+Fake-deletes all rows matching the given criteria.
+* `criteria` – Object with field-value pairs. Supports some special [mongo-like operators](#Special operators)
+* `options` – (Optional) Additional query options
+  * `options.conceal` – Whether to conceal dead resources. Default is `true`.
+* `callback(err, res)` – Fired when completed
+  * `err` – Error, if occurred
+  * `res` – The MySQL response. Contains properties like `res.affectedRows` and `res.changedRows`.
+
+### `_deletePermanently(row, callback)`
+Permanently deletes a row from the table. This is destructive!
+* `doc` – The row to delete. Must include configured id field.   
+* `callback(err, res)` – Fired when completed
+  * `err` – Error, if occurred
+  * `res` – The MySQL response. Contains properties like `res.affectedRows` and `res.changedRows`.
+  
+### `_bulkDeletePermanently(criteria, [options], callback)`
+Permanently deletes all rows matching the given criteria.
+* `criteria` – Object with field-value pairs. Supports some special [mongo-like operators](#Special operators)
+* `options` – (Optional) Additional query options
+  * `options.conceal` – Whether to conceal dead resources. Default is `true`.
+* `callback(err, res)` – Fired when completed
+  * `err` – Error, if occurred
+  * `res` – The MySQL response. Contains properties like `res.affectedRows` and `res.changedRows`.
+  
+## Events
+
+This class does not emit events.
+
 
 ## Extending and Contributing 
 

@@ -61,7 +61,7 @@ class MySQLService {
             }.bind(this);
         }
 
-        this.pool.query.apply(this.pool, args);
+        return this.pool.query.apply(this.pool, args);
     }
 
     /**
