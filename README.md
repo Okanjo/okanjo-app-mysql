@@ -224,9 +224,11 @@ Creates a new instance. Ideally, you would extend it and call it via `super(app,
   * `options.deletedStatus` – (Optional) The status to set docs to when "deleting" them. Defaults to `dead`.
   * `options.concealDeadResources` – (Optional) Whether this service should actively prevent "deleted" (status=dead) resources from returning in `_retrieve`, `_find`, `_bulkUpdate`, `_bulkDelete`, and `_bulkDeletePermanently`. Defaults to `true`.
 
-### `_create(data, callback, [suppressCollisionError])`
+### `_create(data, [options], callback, [suppressCollisionError])`
 Creates a new row.
 * `data` – The row object to store
+* `options` – (Optional) Query options
+  * `options.connection` – The connection to execute the query on. Defaults to the service pool.
 * `callback(err, doc)` – Function fired when completed
   * `err` – Error, if occurred
   * `doc` – The row that was created
@@ -234,13 +236,15 @@ Creates a new row.
 
 Returns the underlying MySQL query.
 
-### `_createWithRetry(data, objectClosure, callback, [attempt])`
+### `_createWithRetry(data, objectClosure, [options], callback, [attempt])`
 Creates a new row after calling the given object closure. This closure is fired again (up to `service._createRetryCount` times) in the event there is a collision. 
 This is useful when you store rows that have unique fields (e.g. an API key) that you can regenerate in that super rare instance that you collide
 * `data` – The row object to store
 * `objectClosure(data, attempt)` – Function fired before saving the new row. Set changeable, unique properties here
   * `data` – The row object to store
   * `attempt` – The attempt number, starting at `0`
+* `options` – (Optional) Query options
+  * `options.connection` – The connection to execute the query on. Defaults to the service pool.
 * `callback(err, doc)` – Function fired when completed
   * `err` – Error, if occurred
   * `doc` – The new row that was created
@@ -248,9 +252,11 @@ This is useful when you store rows that have unique fields (e.g. an API key) tha
 
 Returns the underlying MySQL query.
 
-### `_retrieve(id, callback)`
+### `_retrieve(id, [options], callback)`
 Retrieves a single row from the table.
 * `id` – The id of the row.
+* `options` – (Optional) Query options
+  * `options.connection` – The connection to execute the query on. Defaults to the service pool.
 * `callback(err, doc)` – Function fired when completed
   * `err` – Error, if occurred
   * `doc` – The row if found or `null` if not found
@@ -267,6 +273,7 @@ Finds rows matching the given criteria. Supports pagination, field selection and
   * `options.sort` – Sorts the results by the given fields (same syntax as mongo sorts, e.g. `{ field: 1, reverse: -1 }`). Default is unset.
   * `options.conceal` – Whether to conceal dead resources. Default is `true`. 
   * `options.mode` – (Internal) Query mode, used to toggle query modes like SELECT COUNT(*) queries
+  * `options.connection` – The connection to execute the query on. Defaults to the service pool.
 * `callback(err, rows)` – Fired when completed
   * `err` – Error, if occurred
   * `docs` – The array of rows returned or `[]` if none found.
@@ -291,14 +298,17 @@ Counts the number of matched records.
 * `criteria` – Object with field-value pairs. Supports some special [mongo-like operators](#Special operators)
 * `options` – (Optional) Additional query options
   * `options.conceal` – Whether to conceal dead resources. Default is `true`.
+  * `options.connection` – The connection to execute the query on. Defaults to the service pool.
 * `callback(err, count)` – Fired when completed
   * `err` – Error, if occurred
   * `count` – The number of matched rows or `0` if none found.
 
-### `_update(row, [data], callback)`
+### `_update(row, [data], [options], callback)`
 Updates the given row and optionally applies user-modifiable fields, if service is configured to do so.
 * `doc` – The row to update. Must include configured id field.  
-* `data` – (Optional) Additional pool of key-value fields. Only keys that match `service._modifiableKeys` will be copied if present. Useful for passing in a request payload and copying over pre-validated data as-is.  
+* `data` – (Optional) Additional pool of key-value fields. Only keys that match `service._modifiableKeys` will be copied if present. Useful for passing in a request payload and copying over pre-validated data as-is.
+* `options` – (Optional) Query options
+  * `options.connection` – The connection to execute the query on. Defaults to the service pool.  
 * `callback(err, res)` – Fired when completed
   * `err` – Error, if occurred
   * `res` – The MySQL response. Contains properties like `res.affectedRows` and `res.changedRows`.
@@ -309,13 +319,16 @@ Updates all rows matching the given criteria with the new column values.
 * `data` – Field-value pairs to set on matched rows
 * `options` – (Optional) Additional query options
   * `options.conceal` – Whether to conceal dead resources. Default is `true`.
+  * `options.connection` – The connection to execute the query on. Defaults to the service pool.
 * `callback(err, res)` – Fired when completed
   * `err` – Error, if occurred
   * `res` – The MySQL response. Contains properties like `res.affectedRows` and `res.changedRows`.
   
-### `_delete(row, callback)`
+### `_delete(row, [options], callback)`
 Fake-deletes a row from the table. In reality, it just sets its status to `dead` (or whatever the value of `service._deletedStatus` is).
-* `doc` – The row to delete. Must include configured id field.  
+* `doc` – The row to delete. Must include configured id field.
+* `options` – (Optional) Query options
+  * `options.connection` – The connection to execute the query on. Defaults to the service pool.  
 * `callback(err, res)` – Fired when completed
   * `err` – Error, if occurred
   * `res` – The MySQL response. Contains properties like `res.affectedRows` and `res.changedRows`.
@@ -325,13 +338,16 @@ Fake-deletes all rows matching the given criteria.
 * `criteria` – Object with field-value pairs. Supports some special [mongo-like operators](#Special operators)
 * `options` – (Optional) Additional query options
   * `options.conceal` – Whether to conceal dead resources. Default is `true`.
+  * `options.connection` – The connection to execute the query on. Defaults to the service pool.
 * `callback(err, res)` – Fired when completed
   * `err` – Error, if occurred
   * `res` – The MySQL response. Contains properties like `res.affectedRows` and `res.changedRows`.
 
-### `_deletePermanently(row, callback)`
+### `_deletePermanently(row, [options], callback)`
 Permanently deletes a row from the table. This is destructive!
-* `doc` – The row to delete. Must include configured id field.   
+* `doc` – The row to delete. Must include configured id field.
+* `options` – (Optional) Query options
+  * `options.connection` – The connection to execute the query on. Defaults to the service pool.   
 * `callback(err, res)` – Fired when completed
   * `err` – Error, if occurred
   * `res` – The MySQL response. Contains properties like `res.affectedRows` and `res.changedRows`.
@@ -341,6 +357,7 @@ Permanently deletes all rows matching the given criteria.
 * `criteria` – Object with field-value pairs. Supports some special [mongo-like operators](#Special operators)
 * `options` – (Optional) Additional query options
   * `options.conceal` – Whether to conceal dead resources. Default is `true`.
+  * `options.connection` – The connection to execute the query on. Defaults to the service pool.
 * `callback(err, res)` – Fired when completed
   * `err` – Error, if occurred
   * `res` – The MySQL response. Contains properties like `res.affectedRows` and `res.changedRows`.

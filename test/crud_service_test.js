@@ -1048,5 +1048,164 @@ describe('CrudService', () => {
 
     });
 
+    describe('Transactions', () => {
+
+        // All crud functions should work in a transaction w/ options
+        let connection;
+
+        before((done) => {
+            app.services.db.getConnection((err, conn) => {
+                should(err).not.be.ok();
+                connection = conn;
+
+                connection.beginTransaction((err) => {
+                    should(err).not.be.ok();
+
+                    done(err);
+                });
+
+            });
+        });
+
+        after((done) => {
+            connection.commit((err) => {
+                should(err).not.be.ok();
+                connection.release();
+
+                done();
+            });
+        });
+
+        it('_create in transaction', (done) => {
+            crud._create({
+                id: 'txn',
+                username: 'txn',
+                email: 'txn@txn.com',
+                first_name: null,
+                last_name: null,
+                status: 'active',
+                created: now,
+                updated: now
+            }, { connection }, (err, doc) => {
+                should(err).not.be.ok();
+                should(doc).be.ok();
+
+                done();
+            });
+        });
+
+        it('_createWithRetry in transaction', (done) => {
+            crud._createWithRetry({
+                id: 'txn2',
+                username: 'txn2',
+                email: 'txn2@txn2.com',
+                first_name: null,
+                last_name: null,
+                status: 'active',
+                created: now,
+                updated: now
+            }, (data, attempt) => {
+                data.id = 'txn2'; // a will collide on first attempt, second will fix it
+                return data;
+            }, { connection }, (err, doc) => {
+                should(err).not.be.ok();
+                should(doc).be.ok();
+
+                done();
+            });
+        });
+
+        it('_retrieve in transaction', (done) => {
+            crud._retrieve('txn', { connection }, (err, doc) => {
+                should(err).not.be.ok();
+                should(doc).be.ok();
+
+                done();
+            });
+        });
+
+        it('_find in transaction', (done) => {
+            crud._find({ id: 'txn2' }, { connection }, (err, docs) => {
+                should(err).not.be.ok();
+                should(docs).be.ok();
+                docs.length.should.be.exactly(1);
+
+                done();
+            });
+        });
+
+        it('_count in transaction', (done) => {
+            crud._count({ id: 'txn2' }, { connection }, (err, count) => {
+                should(err).not.be.ok();
+                should(count).be.ok();
+                count.should.be.exactly(1);
+
+                done();
+            });
+        });
+
+        it('_update in transaction', (done) => {
+            crud._update({ id: 'txn', first_name: 'changed' }, {}, { connection }, (err, doc) => {
+                should(err).not.be.ok();
+                should(doc).be.ok();
+
+                done();
+            });
+        });
+
+        it('_bulkUpdate in transaction', (done) => {
+            crud._bulkUpdate({ id: 'txn' }, { last_name: 'bulk' }, { connection }, (err, res) => {
+                should(err).not.be.ok();
+                should(res).be.ok();
+
+                res.affectedRows.should.be.exactly(1);
+                res.changedRows.should.be.exactly(1);
+
+                done();
+            });
+        });
+
+        it('_delete in transaction', (done) => {
+            crud._delete({ id: 'txn2' }, { connection }, (err, doc) => {
+                should(err).not.be.ok();
+                should(doc).be.ok();
+
+                done();
+            });
+        });
+
+        it('_bulkDelete in transaction', (done) => {
+            crud._bulkDelete({ id: 'txn2' }, { connection }, (err, res) => {
+                should(err).not.be.ok();
+
+                res.affectedRows.should.be.exactly(0);
+                res.changedRows.should.be.exactly(0);
+
+                done();
+            });
+        });
+
+        it('_deletePermanently in transaction', (done) => {
+            crud._deletePermanently({ id: 'txn2' }, { connection }, (err, doc) => {
+                should(err).not.be.ok();
+                should(doc).be.ok();
+
+                done();
+            });
+        });
+
+        it('_bulkDeletePermanently in transaction', (done) => {
+            crud._bulkDeletePermanently({ id: 'txn' }, { connection }, (err, res) => {
+                should(err).not.be.ok();
+
+                res.affectedRows.should.be.exactly(1);
+
+                done();
+            });
+        });
+
+
+    })
+
 
 });

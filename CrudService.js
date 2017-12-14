@@ -4,6 +4,7 @@
  * Base service that all object CRUD services should inherit
  */
 class CrudService {
+
     /**
      * Constructor
      * @param app
@@ -64,16 +65,24 @@ class CrudService {
     /**
      * Creates a new model
      * @param {*} data - Record properties
+     * @param {*} [options] – Query options
      * @param {function(err:Error, obj:*)} [callback] – Fired when saved or failed to save
      * @param {boolean} [suppressCollisionError] - Option to suppress error reporting on collisions (for quiet retry handling)
      * @protected
      */
-    _create(data, callback, suppressCollisionError) {
+    _create(data, options, callback, suppressCollisionError) {
+
+        if (typeof options === 'function') {
+            suppressCollisionError = callback;
+            callback = options;
+            options = {};
+        }
 
         let sql = `INSERT INTO \`${this.database}\`.\`${this.table}\` SET ?`;
 
         // Skip the query abstraction and go straight to the pool, cuz we don't want it reporting for us
-        return this.service.pool.query(sql, data, (err, res) => {
+        const connection = options.connection || this.service.pool;
+        return connection.query(sql, data, (err, res) => {
             if (err) {
                 if (!suppressCollisionError || err.errno !== CrudService._collisionErrorCode) {
                     this.app.report('Failed to create new record!', err, { sql, data, res });
@@ -90,13 +99,21 @@ class CrudService {
      * Creates a new record but calls the objectClosure function before each save attempt
      * @param {*} data – Model properties
      * @param {function(data:*,attempt:Number)} objectClosure - Called to obtain the object row properties before save
+     * @param {*} [options] – Query options
      * @param {function(err:Error, obj:*)} [callback] – Fired when saved or failed to save
      * @param {Number} [attempt] - Internal, used if the save attempt failed due to a collision
      * @protected
      */
-    _createWithRetry(data, objectClosure, callback, attempt) {
+    _createWithRetry(data, objectClosure, options, callback, attempt) {
+
+        if (typeof options === 'function') {
+            attempt = callback;
+            callback = options;
+            options = {};
+        }
+
         attempt = attempt || 0;
-        return this._create(objectClosure(data, attempt), (err, doc) => {
+        return this._create(objectClosure(data, attempt), options, (err, doc) => {
             // Only retry if the error matches our known error code
             if (err && err.errno === CrudService._collisionErrorCode) {
                 if (++attempt >= this._createRetryCount) {
@@ -120,10 +137,16 @@ class CrudService {
      * WARNING: this _can_ retrieve dead statuses
      *
      * @param {string} id - Row identifier
+     * @param {*} [options] – Query options
      * @param {function(err:Error, doc:*, fields:*)} callback – Fired when completed
      * @protected
      */
-    _retrieve(id, callback) {
+    _retrieve(id, options, callback) {
+
+        if (typeof options === 'function') {
+            callback = options;
+            options = {};
+        }
 
         // Only do a query if there's something to query for
         if (id !== undefined && id !== null) {
@@ -139,7 +162,8 @@ class CrudService {
 
             sql += ' LIMIT 1';
 
-            return this.service.query(sql, args, (err, res, fields) => {
+            const connection = options.connection || this.service;
+            return connection.query(sql, args, (err, res, fields) => {
                 let row = null;
                 /* istanbul ignore if: this should be next to impossible to trigger */
                 if (err) this.app.report('Failed to retrieve record', err, { id, sql, args, res, fields});
@@ -254,7 +278,8 @@ class CrudService {
             args.push(cap.offset, cap.limit);
         }
 
-        return this.service.query(sql, args, (err, res, fields) => {
+        const connection = options.connection || this.service;
+        return connection.query(sql, args, (err, res, fields) => {
             /* istanbul ignore if: hopefully you shouldn't throw query errors, and if you do, that's on you */
             if (err) {
                 this.app.report('Failed to find records', err, { sql, args, res, fields, mysqlQuery });
@@ -375,15 +400,20 @@ class CrudService {
      * Update an existing row
      * @param {*} doc - row to update
      * @param {*} [data] - Data to apply to the row before saving
+     * @param {*} [options] – Query options
      * @param {function(err:Error, obj:*)} callback – Fired when saved or failed to save
      * @protected
      */
-    _update(doc, data, callback) {
+    _update(doc, data, options, callback) {
 
         // Allow overloading of _update(obj, callback)
         if (typeof data === "function") {
             callback = data;
+            options = {};
             data = null;
+        } else if (typeof options === 'function') {
+            callback = options;
+            options = {};
         }
 
         // Apply any given key updates, if given
@@ -405,7 +435,8 @@ class CrudService {
             let sql = 'UPDATE ??.?? SET ? WHERE ?? = ?';
             let args = [this.database, this.table, sets, this.idField, doc[this.idField]];
 
-            return this.service.query(sql, args, (err, res, fields) => {
+            const connection = options.connection || this.service;
+            return connection.query(sql, args, (err, res, fields) => {
                 /* istanbul ignore if: hopefully you shouldn't throw query errors, and if you do, that's on you */
                 if (err) {
                     this.app.report('Failed to update row', err, { doc, data, sql, args, res, fields });
@@ -421,7 +452,7 @@ class CrudService {
      * Updates all records that match the given criteria with the given properties
      * @param {*} criteria – Query criteria (just like _find)
      * @param {*} data – Column-value properties to set on each matched record
-     * @param {{conceal:boolean}} [options] – Additional options
+     * @param {{connection:*, conceal:boolean}} [options] – Additional options
      * @param {function(err:Error, res:*)} callback – Fired when completed
      * @protected
      */
@@ -470,7 +501,8 @@ class CrudService {
         this._buildCriteria(criteria, where, args);
         if (where.length > 0) sql += ` WHERE ${where.join(' AND ')}`;
 
-        return this.service.query(sql, args, (err, res) => {
+        const connection = options.connection || this.service;
+        return connection.query(sql, args, (err, res) => {
             /* istanbul ignore if: hopefully you shouldn't throw query errors, and if you do, that's on you */
             if (err) {
                 this.app.report('Failed to bulk update rows', err, { criteria, data, sql, args, res, fields });
@@ -483,12 +515,13 @@ class CrudService {
     /**
      * Fake-deletes a row from the table (by changing its status to dead and updating the row)
      * @param {*} doc - Row to update
+     * @param {*} [options] – Query options
      * @param {function(err:Error, obj:*)} [callback] – Fired when saved or failed to save
      * @protected
      */
-    _delete(doc, callback) {
+    _delete(doc, options, callback) {
         doc.status = this._deletedStatus;
-        return this._update(doc, (err, doc) => {
+        return this._update(doc, null, options, (err, doc) => {
             callback(err, doc);
         });
     }
@@ -514,10 +547,17 @@ class CrudService {
     /**
      * Permanently removes a row from the table
      * @param {*} doc - row to delete
+     * @param {*} [options] - Query options
      * @param {function(err:Error, obj:*)} [callback] - Fired when deleted or failed to delete
      * @protected
      */
-    _deletePermanently(doc, callback) {
+    _deletePermanently(doc, options, callback) {
+
+        if (typeof options === 'function') {
+            callback = options;
+            options = {};
+        }
+
         // Make sure we know what we are deleting!
         if (doc[this.idField] === undefined) {
             this.app.report('Cannot delete row if id field not provided!', { doc, idField: this.idField });
@@ -527,7 +567,8 @@ class CrudService {
             let sql = 'DELETE FROM ??.?? WHERE ?? = ?';
             let args = [this.database, this.table, this.idField, doc[this.idField]];
 
-            return this.service.query(sql, args, (err, res, fields) => {
+            const connection = options.connection || this.service;
+            return connection.query(sql, args, (err, res, fields) => {
                 /* istanbul ignore if: out of scope cuz maybe you got FK constrains cramping your style */
                 if (err) {
                     this.app.report('Failed to delete row', err, { doc, sql, args, res, fields})
@@ -587,7 +628,8 @@ class CrudService {
         this._buildCriteria(criteria, where, args);
         if (where.length > 0) sql += ` WHERE ${where.join(' AND ')}`;
 
-        return this.service.query(sql, args, (err, res, fields) => {
+        const connection = options.connection || this.service;
+        return connection.query(sql, args, (err, res, fields) => {
             /* istanbul ignore if: out of scope cuz maybe you got FK constrains cramping your style? */
             if (err) {
                 this.app.report('Failed to bulk perm-delete rows', err, { criteria, sql, args, res, fields})
