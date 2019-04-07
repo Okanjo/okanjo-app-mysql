@@ -1,6 +1,6 @@
 "use strict";
 
-const mysql = require('mysql');
+const MySQL = require('mysql');
 
 /**
  * MYSQL Database service
@@ -21,60 +21,83 @@ class MySQLService {
             throw new Error('MySQLService: `config` must be defined on initialization!');
         }
 
-        app._serviceConnectors.push((cb) => this.connect(cb));
+        app._serviceConnectors.push(async () => this.connect());
     }
 
     /**
      * Connects to the MySQL database, and initializes the connection pool
-     * @param callback
      */
-    connect(callback) {
+    async connect() {
         // Luckily, all we have to do here is define the pool
-        this.pool = mysql.createPool(this.config);
-
-        // Not really async, cuz the connection will be obtained on demand
-        callback();
+        this.pool = MySQL.createPool(this.config);
     }
 
     /**
      * Shortcut to issue a query to MySQL using any available connection
      * @param {string} query
      * @param {Object} [options]
-     * @param callback
+     * @param {function(err:*, results:*, fields:*)} [callback]
+     * @returns {Promise<{results:*,fields:*}>}
      */
     query(query, options, callback) {
-        // Pull args sent here
-        const args = Array.prototype.slice.call(arguments);
+        return this.wrapQuery(this.pool, query, options, callback);
+    }
 
-        // Intercept and wrap the original callback
-        if (typeof args[args.length-1] === "function") {
-            const originalCallback = args[args.length-1];
-            args[args.length-1] = function(err, res) {
-                const callbackArgs = Array.prototype.slice.call(arguments);
+    /**
+     * Wrap a connection.query with a promise
+     * @param {*} connection
+     * @param {string} query
+     * @param {*} [options]
+     * @param {function} [callback]
+     * @returns {Promise<{results:*,fields:*}>}
+     */
+    wrapQuery(connection, query, options, callback) {
+        return new Promise((resolve, reject) => {
+
+            if (typeof options === "function") {
+                callback = options;
+                options = undefined;
+            }
+            if (!options) {
+                options = undefined;
+            }
+
+            // Fire the query
+            connection.query(query, options, async (err, results, fields) => {
 
                 // Intercept and report query errors!
                 if (err) {
-                    this.app.report('MySQL Query Error!', err, res, args);
+                    await this.app.report('MySQLService: Query error', err, { query, options, results, fields });
+                    if (callback) { // noinspection JSUnresolvedFunction
+                        return callback(err);
+                    }
+                    return reject(err);
+                } else {
+                    if (callback) { // noinspection JSUnresolvedFunction
+                        return callback(null, {results, fields});
+                    }
+                    return resolve({ results, fields});
                 }
-
-                originalCallback.apply(null, callbackArgs);
-            }.bind(this);
-        }
-
-        return this.pool.query.apply(this.pool, args);
+            });
+        });
     }
 
     /**
      * Shortcut to get an exclusive connection from the pool (e.g. for transactions). DON'T FORGET TO `connection.release()`!
-     * @param callback
      */
-    getConnection(callback) {
-        this.pool.getConnection((err, connection) => {
-            /* istanbul ignore if: out of scope */
-            if (err) {
-                this.app.report('MySQL Pool: Could not get connection!', err);
-            }
-            callback(err, connection);
+    async getConnection(callback) {
+        return new Promise((resolve, reject) => {
+            this.pool.getConnection(async (err, connection) => {
+                /* istanbul ignore if: out of scope */
+                if (err) {
+                    await this.app.report('MySQLService: Could not get connection from pool!', err);
+                    if (callback) return callback(err);
+                    return reject(err);
+                } else {
+                    if (callback) return callback(null, connection);
+                    return resolve(connection);
+                }
+            });
         });
     }
 }

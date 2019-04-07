@@ -8,7 +8,7 @@ describe('MySQLService', () => {
 
     let app;
 
-    it('should instantiate', (done) => {
+    before(async () => {
 
         app = new OkanjoApp(config);
 
@@ -16,10 +16,9 @@ describe('MySQLService', () => {
             db: new MySQLService(app, app.config.mysql.my_database)
         };
 
-        app.connectToServices(() => {
-            app.services.db.pool.should.be.ok();
-            done();
-        });
+        await app.connectToServices();
+
+        app.services.db.pool.should.be.ok();
 
     });
 
@@ -30,15 +29,26 @@ describe('MySQLService', () => {
     it('should query', (done) => {
         app.services.db.query('SHOW DATABASES;', (err, res) => {
             should(err).be.exactly(null);
-            should(res).be.an.Array();
-            res.length.should.be.greaterThan(0);
+            should(res).be.ok();
+            should(res.results).be.an.Array();
+            res.results.length.should.be.greaterThan(0);
             done();
         });
     });
 
-    it('should query without a callback', (done) => {
-        app.services.db.query('SHOW DATABASES;');
-        setTimeout(done, 20);
+    it('should query w/ options', (done) => {
+        app.services.db.query('SHOW DATABASES;', {}, (err, res) => {
+            should(err).be.exactly(null);
+            should(res).be.ok();
+            should(res.results).be.an.Array();
+            res.results.length.should.be.greaterThan(0);
+            done();
+        });
+    });
+
+    it('should query without a callback', async () => {
+        const res = await app.services.db.query('SHOW DATABASES;');
+        should(res).be.ok();
     });
 
     it('should report query errors', (done) => {
@@ -51,6 +61,14 @@ describe('MySQLService', () => {
         });
     });
 
+    it('should report query errors w/ promise', (done) => {
+        app.services.db.query('SHOW DATATHINGS;').catch((err) => {
+            err.should.be.an.Object();
+            err.message.should.match(/ER_PARSE_ERROR/);
+            done();
+        });
+    });
+
     it('should get a connection', (done) => {
         app.services.db.getConnection((err, connection) => {
             should(err).be.null();
@@ -59,6 +77,22 @@ describe('MySQLService', () => {
             //Issue a query
             connection.query('SHOW DATABASES;', (err, res) => {
                 should(err).be.exactly(null);
+
+                should(res).be.an.Array();
+                res.length.should.be.greaterThan(0);
+
+                connection.release();
+                done();
+            });
+        });
+    });
+
+    it('should get a connection w/ promise', (done) => {
+        app.services.db.getConnection().then((connection) => {
+            should(connection).be.an.Object();
+
+            //Issue a query
+            app.services.db.wrapQuery(connection, 'SHOW DATABASES;').then(({results:res}) => {
 
                 should(res).be.an.Array();
                 res.length.should.be.greaterThan(0);

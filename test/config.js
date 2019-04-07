@@ -1,6 +1,6 @@
 "use strict";
 
-const host = process.env.MYSQL_HOST || '192.168.99.100';
+const host = process.env.MYSQL_HOST || '127.0.0.1';
 const port = process.env.MYSQL_PORT || '3306';
 const user = process.env.MYSQL_USER || 'root';
 const password = process.env.MYSQL_PASS || 'unittest';

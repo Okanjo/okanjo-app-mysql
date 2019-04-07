@@ -9,6 +9,35 @@ describe('CrudService', () => {
 
     let app;
 
+    const purgeTable = async () => {
+        await app.services.db.query('DELETE FROM `crud_test`.`user` WHERE 1;');
+    };
+
+    const createDummyRecord = async (data) => {
+        const doc = await crud._create(data || {
+            id: 'a',
+            username: 'a',
+            email: 'a@a.com',
+            first_name: null,
+            last_name: null,
+            status: 'active',
+            created: now,
+            updated: now
+        });
+        should(doc).be.ok();
+
+        if (!data) {
+            doc.id.should.be.exactly('a');
+            doc.username.should.be.exactly('a');
+            doc.email.should.be.exactly('a@a.com');
+            should(doc.first_name).be.exactly(null);
+            should(doc.last_name).be.exactly(null);
+            doc.status.should.be.exactly('active');
+            doc.created.should.be.equal(now);
+            doc.updated.should.be.equal(now);
+        }
+    };
+
     before((done) => {
 
         app = new OkanjoApp(config);
@@ -42,7 +71,18 @@ describe('CrudService', () => {
                       UNIQUE KEY \`username_UNIQUE\` (\`username\`)
                     ) ENGINE=InnoDB DEFAULT CHARSET=utf8;`, (err) => {
                         should(err).not.be.ok();
+
+                        // should instantiate
+                        crud = new CrudService(app, {
+                            service: app.services.db,
+                            database: 'crud_test',
+                            table: 'user'
+                        });
+
+                        should(crud).be.ok();
+
                         done();
+
                     });
 
                 });
@@ -54,20 +94,6 @@ describe('CrudService', () => {
     let crud;
 
     describe('constructor', () => {
-
-        it('should instantiate', (done) => {
-
-            crud = new CrudService(app, {
-                service: app.services.db,
-                database: 'crud_test',
-                table: 'user'
-            });
-
-            should(crud).be.ok();
-
-            done();
-
-        });
 
         it('should accept various options', (done) => {
 
@@ -98,6 +124,10 @@ describe('CrudService', () => {
     const now = new Date('2017-11-30T17:17:34-06:00');
 
     describe('_create', () => {
+
+        before(async () => {
+            await purgeTable();
+        });
 
         it('should create a record', (done) => {
             crud._create({
@@ -149,6 +179,11 @@ describe('CrudService', () => {
 
     describe('_createWithRetry', () => {
 
+        before(async () => {
+            await purgeTable();
+            await createDummyRecord();
+        });
+
         it('should create a record on second attempt (pk collision)', (done) => {
             crud._createWithRetry({
                 email: 'b@b.com',
@@ -176,6 +211,32 @@ describe('CrudService', () => {
 
                 done();
             });
+        });
+
+        it('should create a record on second attempt (pk collision) w/ promise', async () => {
+            const doc = await crud._createWithRetry({
+                email: 'bb@bb.com',
+                username: 'bb',
+                first_name: null,
+                last_name: null,
+                status: 'active',
+                created: now,
+                updated: now
+            }, (data, attempt) => {
+                data.id = attempt === 0 ? 'a' : 'bb'; // a will collide on first attempt, second will fix it
+                return data;
+            });
+
+            should(doc).be.ok();
+            doc.id.should.be.exactly('bb');
+            doc.username.should.be.exactly('bb');
+            doc.email.should.be.exactly('bb@bb.com');
+            should(doc.first_name).be.exactly(null);
+            should(doc.last_name).be.exactly(null);
+            doc.status.should.be.exactly('active');
+            doc.created.should.be.equal(now);
+            doc.updated.should.be.equal(now);
+
         });
 
         it('should create a record on second attempt (unique collision)', (done) => {
@@ -217,9 +278,70 @@ describe('CrudService', () => {
                 status: 'active',
                 created: now,
                 updated: now
-            }, (data, attempt) => data, (err) => {
+            }, (data, attempt) => {
+                attempt.should.be.lessThanOrEqual(2);
+                return data;
+            }, (err) => {
                 should(err).be.ok();
 
+                done();
+            });
+        });
+
+        it('should should give up when the closure is stubborn w/ promise', (done) => {
+            crud._createWithRetry({
+                id: 'a',
+                username: 'a',
+                email: 'a@a.com',
+                first_name: null,
+                last_name: null,
+                status: 'active',
+                created: now,
+                updated: now
+            }, (data, attempt) => {
+                attempt.should.be.lessThanOrEqual(2);
+                return data;
+            }).catch((err) => {
+                should(err).be.ok();
+
+                done();
+            });
+        });
+
+        it('should handle error ', (done) => {
+            crud._createWithRetry({
+                email: 'nope@nope.com',
+                username: 'nope',
+                first_name: null,
+                last_name: null,
+                status: 'active',
+                created: now,
+                updated: now,
+                totally_invalid_field: 1
+            }, (data, attempt) => {
+                attempt.should.be.lessThanOrEqual(0);
+                return data;
+            }, (err) => {
+                should(err).be.ok();
+                done();
+            });
+        });
+
+        it('should handle error w/ promise', (done) => {
+            crud._createWithRetry({
+                email: 'nope@nope.com',
+                username: 'nope',
+                first_name: null,
+                last_name: null,
+                status: 'active',
+                created: now,
+                updated: now,
+                totally_invalid_field: 1
+            }, (data, attempt) => {
+                attempt.should.be.lessThanOrEqual(0);
+                return data;
+            }).catch((err) => {
+                should(err).be.ok();
                 done();
             });
         });
@@ -228,15 +350,19 @@ describe('CrudService', () => {
 
     describe('_retrieve', () => {
 
+        before(async () => {
+            await purgeTable();
+            await createDummyRecord();
+        });
+
         it('should callback null with no id present', (done) => {
-            crud._retrieve(undefined, (err, doc, fields) => {
+            crud._retrieve(undefined, (err, doc) => {
                 should(err).be.exactly(null);
                 should(doc).be.exactly(null);
 
                 crud._retrieve(null, (err, doc) => {
                     should(err).be.exactly(null);
                     should(doc).be.exactly(null);
-                    should(fields).be.exactly(null);
 
                     done();
                 });
@@ -246,10 +372,9 @@ describe('CrudService', () => {
 
         it('should not retrieve a bogus record', (done) => {
 
-            crud._retrieve('bogus', (err, doc, fields) => {
+            crud._retrieve('bogus', (err, doc) => {
                 should(err).not.be.ok();
                 should(doc).be.exactly(null);
-                should(fields).be.ok();
 
                 done();
             });
@@ -262,7 +387,7 @@ describe('CrudService', () => {
                 should(err).not.be.ok();
                 should(doc).be.ok();
 
-                console.log(doc);
+                // console.log(doc);
 
                 doc.id.should.be.exactly('a');
                 doc.username.should.be.exactly('a');
@@ -302,10 +427,9 @@ describe('CrudService', () => {
                 doc.updated.should.be.equal(now);
 
                 // now try fetching it
-                crud._retrieve('dead', (err, doc, fields) => {
+                crud._retrieve('dead', (err, doc) => {
                     should(err).not.be.ok();
                     should(doc).not.be.ok();
-                    should(fields).be.ok();
 
                     done();
                 });
@@ -314,10 +438,9 @@ describe('CrudService', () => {
 
         it('should retrieve dead resource if concealment is disabled', (done) => {
             crud._concealDeadResources = false;
-            crud._retrieve('dead', (err, doc, fields) => {
+            crud._retrieve('dead', (err, doc) => {
                 should(err).not.be.ok();
                 should(doc).be.ok();
-                should(fields).be.ok();
 
                 doc.id.should.be.exactly('dead');
                 doc.username.should.be.exactly('dead');
@@ -337,11 +460,45 @@ describe('CrudService', () => {
 
     describe('_find', () => {
 
+        before(async () => {
+            await purgeTable();
+            await createDummyRecord();
+            await createDummyRecord({
+                id: 'b',
+                email: 'b@b.com',
+                username: 'b',
+                first_name: null,
+                last_name: null,
+                status: 'active',
+                created: now,
+                updated: now
+            });
+            await createDummyRecord({
+                id: 'c',
+                email: 'c@c.com',
+                username: 'c',
+                first_name: null,
+                last_name: null,
+                status: 'active',
+                created: now,
+                updated: now
+            });
+            await createDummyRecord({
+                id: 'd',
+                email: 'd@d.com',
+                username: 'd',
+                first_name: null,
+                last_name: null,
+                status: 'dead',
+                created: now,
+                updated: now
+            });
+        });
+
         it('should find all alive resources', (done) => {
-            crud._find({}, (err, docs, fields) => {
+            crud._find({}, (err, docs) => {
                 should(err).not.be.ok();
                 should(docs).be.ok();
-                should(fields).be.ok();
 
                 docs.length.should.be.exactly(3); // a, b, c
 
@@ -350,10 +507,9 @@ describe('CrudService', () => {
         });
 
         it('should find all alive resources (null options)', (done) => {
-            crud._find({}, null, (err, docs, fields) => {
+            crud._find({}, null, (err, docs) => {
                 should(err).not.be.ok();
                 should(docs).be.ok();
-                should(fields).be.ok();
 
                 docs.length.should.be.exactly(3); // a, b, c
 
@@ -363,11 +519,10 @@ describe('CrudService', () => {
 
         it('should find all resources if concealment is disabled', (done) => {
             crud._concealDeadResources = false;
-            crud._find({}, (err, docs, fields) => {
+            crud._find({}, (err, docs) => {
                 crud._concealDeadResources = true;
                 should(err).not.be.ok();
                 should(docs).be.ok();
-                should(fields).be.ok();
 
                 docs.length.should.be.exactly(4); // a, b, c, dead
 
@@ -376,10 +531,9 @@ describe('CrudService', () => {
         });
 
         it('should find all resources if concealment explicitly disabled', (done) => {
-            crud._find({}, { conceal: false }, (err, docs, fields) => {
+            crud._find({}, { conceal: false }, (err, docs) => {
                 should(err).not.be.ok();
                 should(docs).be.ok();
-                should(fields).be.ok();
 
                 docs.length.should.be.exactly(4); // a, b, c, dead
 
@@ -389,15 +543,14 @@ describe('CrudService', () => {
 
         it('should find all resources if concealment is disabled and criteria is empty', (done) => {
             crud._concealDeadResources = false;
-            crud._find(null, (err, docs, fields) => {
+            crud._find(null, (err, docs) => {
                 crud._concealDeadResources = true;
                 should(err).not.be.ok();
                 should(docs).be.ok();
-                should(fields).be.ok();
 
                 docs.length.should.be.exactly(4); // a, b, c, dead
 
-                console.log(docs);
+                // console.log(docs);
 
 
                 done()
@@ -407,10 +560,9 @@ describe('CrudService', () => {
         it('should combine status and concealment args', (done) => {
             crud._find({
                 status: 'active'
-            }, (err, docs, fields) => {
+            }, (err, docs) => {
                 should(err).not.be.ok();
                 should(docs).be.ok();
-                should(fields).be.ok();
 
                 docs.length.should.be.exactly(3); // a, b, c
 
@@ -419,10 +571,9 @@ describe('CrudService', () => {
         });
 
         it('should include concealment with an empty criteria set', (done) => {
-            crud._find(null, (err, docs, fields) => {
+            crud._find(null, (err, docs) => {
                 should(err).not.be.ok();
                 should(docs).be.ok();
-                should(fields).be.ok();
 
                 docs.length.should.be.exactly(3); // a, b, c
 
@@ -431,10 +582,9 @@ describe('CrudService', () => {
         });
 
         it('should return only the fields asked for if specified', (done) => {
-            crud._find({}, { fields: { username: 1 } }, (err, docs, fields) => {
+            crud._find({}, { fields: { username: 1 } }, (err, docs) => {
                 should(err).not.be.ok();
                 should(docs).be.ok();
-                should(fields).be.ok();
 
                 docs.length.should.be.exactly(3); // a, b, c
                 docs.forEach((doc) => {
@@ -448,10 +598,9 @@ describe('CrudService', () => {
         });
 
         it('should return only the fields asked for if specified with no id', (done) => {
-            crud._find({}, { fields: { id: 0, username: 1 } }, (err, docs, fields) => {
+            crud._find({}, { fields: { id: 0, username: 1 } }, (err, docs) => {
                 should(err).not.be.ok();
                 should(docs).be.ok();
-                should(fields).be.ok();
 
                 docs.length.should.be.exactly(3); // a, b, c
                 docs.forEach((doc) => {
@@ -465,10 +614,9 @@ describe('CrudService', () => {
         });
 
         it('should sort by a given field or fields', (done) => {
-            crud._find({}, { sort: { id: -1, username: 1 } }, (err, docs, fields) => {
+            crud._find({}, { sort: { id: -1, username: 1 } }, (err, docs) => {
                 should(err).not.be.ok();
                 should(docs).be.ok();
-                should(fields).be.ok();
 
                 docs.length.should.be.exactly(3); // c, b, a
                 docs.forEach((doc, i) => {
@@ -486,10 +634,9 @@ describe('CrudService', () => {
         });
 
         it('should handle pagination', (done) => {
-            crud._find({}, { skip: 0, take: 2 }, (err, docs, fields) => {
+            crud._find({}, { skip: 0, take: 2 }, (err, docs) => {
                 should(err).not.be.ok();
                 should(docs).be.ok();
-                should(fields).be.ok();
 
                 docs.length.should.be.exactly(2); // a, b
                 docs.forEach((doc, i) => {
@@ -501,10 +648,9 @@ describe('CrudService', () => {
                     }
                 });
 
-                crud._find({}, { skip: 2, take: 2 }, (err, docs, fields) => {
+                crud._find({}, { skip: 2, take: 2 }, (err, docs) => {
                     should(err).not.be.ok();
                     should(docs).be.ok();
-                    should(fields).be.ok();
 
                     docs.length.should.be.exactly(1); // c
                     docs[0].id.should.be.exactly('c');
@@ -517,10 +663,9 @@ describe('CrudService', () => {
         });
 
         it('should handle offset, no limit', (done) => {
-            crud._find({}, { skip: 1 }, (err, docs, fields) => {
+            crud._find({}, { skip: 1 }, (err, docs) => {
                 should(err).not.be.ok();
                 should(docs).be.ok();
-                should(fields).be.ok();
 
 
                 docs.length.should.be.exactly(2); // b, c
@@ -542,10 +687,9 @@ describe('CrudService', () => {
         });
 
         it('should handle limit, no offset', (done) => {
-            crud._find({}, { take: 2 }, (err, docs, fields) => {
+            crud._find({}, { take: 2 }, (err, docs) => {
                 should(err).not.be.ok();
                 should(docs).be.ok();
-                should(fields).be.ok();
 
 
                 docs.length.should.be.exactly(2); // a, b
@@ -567,10 +711,9 @@ describe('CrudService', () => {
         });
 
         it('should handle special operator: array (in)', (done) => {
-            crud._find({ id: ['a','b'] }, (err, docs, fields) => {
+            crud._find({ id: ['a','b'] }, (err, docs) => {
                 should(err).not.be.ok();
                 should(docs).be.ok();
-                should(fields).be.ok();
 
 
                 docs.length.should.be.exactly(2); // a, b
@@ -580,10 +723,9 @@ describe('CrudService', () => {
         });
 
         it('should handle special operator: $ne array (not in)', (done) => {
-            crud._find({ id: { $ne: ['a','b'] } }, (err, docs, fields) => {
+            crud._find({ id: { $ne: ['a','b'] } }, (err, docs) => {
                 should(err).not.be.ok();
                 should(docs).be.ok();
-                should(fields).be.ok();
 
 
                 docs.length.should.be.exactly(1); // c
@@ -593,10 +735,9 @@ describe('CrudService', () => {
         });
 
         it('should handle special operator: $gt', (done) => {
-            crud._find({ created: { $gt: new Date('2017-11-29T17:17:34-06:00')} }, (err, docs, fields) => {
+            crud._find({ created: { $gt: new Date('2017-11-29T17:17:34-06:00')} }, (err, docs) => {
                 should(err).not.be.ok();
                 should(docs).be.ok();
-                should(fields).be.ok();
 
 
                 docs.length.should.be.exactly(3); // a, b, c
@@ -606,10 +747,9 @@ describe('CrudService', () => {
         });
 
         it('should handle special operator: $gt', (done) => {
-            crud._find({ created: { $gte: now } }, (err, docs, fields) => {
+            crud._find({ created: { $gte: now } }, (err, docs) => {
                 should(err).not.be.ok();
                 should(docs).be.ok();
-                should(fields).be.ok();
 
 
                 docs.length.should.be.exactly(3); // a, b, c
@@ -619,10 +759,9 @@ describe('CrudService', () => {
         });
 
         it('should handle special operator: $lt', (done) => {
-            crud._find({ created: { $lt: new Date('2017-12-01T17:17:34-06:00')} }, (err, docs, fields) => {
+            crud._find({ created: { $lt: new Date('2017-12-01T17:17:34-06:00')} }, (err, docs) => {
                 should(err).not.be.ok();
                 should(docs).be.ok();
-                should(fields).be.ok();
 
 
                 docs.length.should.be.exactly(3); // a, b, c
@@ -632,10 +771,9 @@ describe('CrudService', () => {
         });
 
         it('should handle special operator: $lt', (done) => {
-            crud._find({ created: { $lte: now } }, (err, docs, fields) => {
+            crud._find({ created: { $lte: now } }, (err, docs) => {
                 should(err).not.be.ok();
                 should(docs).be.ok();
-                should(fields).be.ok();
 
 
                 docs.length.should.be.exactly(3); // a, b, c
@@ -645,10 +783,9 @@ describe('CrudService', () => {
         });
 
         it('should handle special operator: $ne', (done) => {
-            crud._find({ id: { $ne: 'a' } }, (err, docs, fields) => {
+            crud._find({ id: { $ne: 'a' } }, (err, docs) => {
                 should(err).not.be.ok();
                 should(docs).be.ok();
-                should(fields).be.ok();
 
 
                 docs.length.should.be.exactly(2); // b, c
@@ -658,10 +795,9 @@ describe('CrudService', () => {
         });
 
         it('should handle regular operator: =', (done) => {
-            crud._find({ id: 'a' }, (err, docs, fields) => {
+            crud._find({ id: 'a' }, (err, docs) => {
                 should(err).not.be.ok();
                 should(docs).be.ok();
-                should(fields).be.ok();
 
 
                 docs.length.should.be.exactly(1); // a
@@ -671,10 +807,9 @@ describe('CrudService', () => {
         });
 
         it('should warn when you are crazy', (done) => {
-            crud._find({ created: { $crazy: 'yes' } }, (err, docs, fields) => {
+            crud._find({ created: { $crazy: 'yes' } }, (err, docs) => {
                 should(err).not.be.ok();
                 should(docs).be.ok();
-                should(fields).be.ok();
 
 
                 docs.length.should.be.exactly(3); // a, b, c
@@ -687,11 +822,45 @@ describe('CrudService', () => {
 
     describe('_count', () => {
 
+        before(async () => {
+            await purgeTable();
+            await createDummyRecord();
+            await createDummyRecord({
+                id: 'b',
+                email: 'b@b.com',
+                username: 'b',
+                first_name: null,
+                last_name: null,
+                status: 'active',
+                created: now,
+                updated: now
+            });
+            await createDummyRecord({
+                id: 'c',
+                email: 'c@c.com',
+                username: 'c',
+                first_name: null,
+                last_name: null,
+                status: 'active',
+                created: now,
+                updated: now
+            });
+            await createDummyRecord({
+                id: 'd',
+                email: 'd@d.com',
+                username: 'd',
+                first_name: null,
+                last_name: null,
+                status: 'dead',
+                created: now,
+                updated: now
+            });
+        });
+
         it('should get a count', (done) => {
-            crud._count({}, (err, count, fields) => {
+            crud._count({}, (err, count) => {
                 should(err).not.be.ok();
                 should(count).be.ok();
-                should(fields).be.ok();
 
                 count.should.be.exactly(3);
 
@@ -700,10 +869,9 @@ describe('CrudService', () => {
         });
 
         it('should get a count with no options', (done) => {
-            crud._count({}, null, (err, count, fields) => {
+            crud._count({}, null, (err, count) => {
                 should(err).not.be.ok();
                 should(count).be.ok();
-                should(fields).be.ok();
 
                 count.should.be.exactly(3);
 
@@ -712,10 +880,9 @@ describe('CrudService', () => {
         });
 
         it('should get a count with options', (done) => {
-            crud._count({ }, { conceal: false }, (err, count, fields) => {
+            crud._count({ }, { conceal: false }, (err, count) => {
                 should(err).not.be.ok();
                 should(count).be.ok();
-                should(fields).be.ok();
 
                 count.should.be.exactly(4);
 
@@ -726,6 +893,41 @@ describe('CrudService', () => {
     });
 
     describe('_update', () => {
+
+        before(async () => {
+            await purgeTable();
+            await createDummyRecord();
+            await createDummyRecord({
+                id: 'b',
+                email: 'b@b.com',
+                username: 'b',
+                first_name: null,
+                last_name: null,
+                status: 'active',
+                created: now,
+                updated: now
+            });
+            await createDummyRecord({
+                id: 'c',
+                email: 'c@c.com',
+                username: 'c',
+                first_name: null,
+                last_name: null,
+                status: 'active',
+                created: now,
+                updated: now
+            });
+            await createDummyRecord({
+                id: 'd',
+                email: 'd@d.com',
+                username: 'd',
+                first_name: null,
+                last_name: null,
+                status: 'dead',
+                created: now,
+                updated: now
+            });
+        });
 
         it('should update a doc', (done) => {
             crud._retrieve('a', (err, doc) => {
@@ -822,6 +1024,41 @@ describe('CrudService', () => {
 
     describe('_bulkUpdate', () => {
 
+        before(async () => {
+            await purgeTable();
+            await createDummyRecord();
+            await createDummyRecord({
+                id: 'b',
+                email: 'b@b.com',
+                username: 'b',
+                first_name: null,
+                last_name: null,
+                status: 'active',
+                created: now,
+                updated: now
+            });
+            await createDummyRecord({
+                id: 'c',
+                email: 'c@c.com',
+                username: 'c',
+                first_name: null,
+                last_name: null,
+                status: 'active',
+                created: now,
+                updated: now
+            });
+            await createDummyRecord({
+                id: 'd',
+                email: 'd@d.com',
+                username: 'd',
+                first_name: null,
+                last_name: null,
+                status: 'dead',
+                created: now,
+                updated: now
+            });
+        });
+
         it('should bulk update matched records', (done) => {
             crud._bulkUpdate({ id: ['a','b'] }, { first_name: 'bulk' }, (err, res) => {
                 should(err).not.be.ok();
@@ -903,6 +1140,20 @@ describe('CrudService', () => {
 
     describe('_delete', () => {
 
+        before(async () => {
+            await purgeTable();
+            await createDummyRecord({
+                id: 'c',
+                email: 'c@c.com',
+                username: 'c',
+                first_name: null,
+                last_name: null,
+                status: 'active',
+                created: now,
+                updated: now
+            });
+        });
+
         it('should fake delete a record', (done) => {
             const doc = { id: 'c' };
             crud._delete(doc, (err, doc2) => {
@@ -925,13 +1176,48 @@ describe('CrudService', () => {
 
     describe('_bulkDelete', () => {
 
+        before(async () => {
+            await purgeTable();
+            await createDummyRecord();
+            await createDummyRecord({
+                id: 'b',
+                email: 'b@b.com',
+                username: 'b',
+                first_name: null,
+                last_name: null,
+                status: 'active',
+                created: now,
+                updated: now
+            });
+            await createDummyRecord({
+                id: 'c',
+                email: 'c@c.com',
+                username: 'c',
+                first_name: null,
+                last_name: null,
+                status: 'active',
+                created: now,
+                updated: now
+            });
+            await createDummyRecord({
+                id: 'd',
+                email: 'd@d.com',
+                username: 'd',
+                first_name: null,
+                last_name: null,
+                status: 'dead',
+                created: now,
+                updated: now
+            });
+        });
+
         it('should bulk delete with no options', (done) => {
-            crud._bulkDelete({ id: 'c' }, (err, res) => {
+            crud._bulkDelete({ status: 'active' }, (err, res) => {
                 should(err).not.be.ok();
                 should(res).be.ok();
 
-                res.affectedRows.should.be.exactly(0); // c is dead so nothing
-                res.changedRows.should.be.exactly(0);
+                res.affectedRows.should.be.exactly(3);
+                res.changedRows.should.be.exactly(3);
 
                 done();
             });
@@ -953,6 +1239,20 @@ describe('CrudService', () => {
 
     describe('_deletePermanently', () => {
 
+        before(async () => {
+            await purgeTable();
+            await createDummyRecord({
+                id: 'b',
+                email: 'b@b.com',
+                username: 'b',
+                first_name: null,
+                last_name: null,
+                status: 'active',
+                created: now,
+                updated: now
+            });
+        });
+
         it('should really delete a record', (done) => {
             const doc = { id: 'b' };
             crud._deletePermanently(doc, (err, doc2) => {
@@ -965,7 +1265,7 @@ describe('CrudService', () => {
                     should(err).not.be.ok();
                     should(docs).be.ok();
 
-                    docs.length.should.be.exactly(3); // a, c, dead (b is really gone)
+                    docs.length.should.be.exactly(0);
 
                     done();
                 });
@@ -998,12 +1298,47 @@ describe('CrudService', () => {
 
     describe('_bulkDeletePermanently', () => {
 
+        before(async () => {
+            await purgeTable();
+            await createDummyRecord();
+            await createDummyRecord({
+                id: 'b',
+                email: 'b@b.com',
+                username: 'b',
+                first_name: null,
+                last_name: null,
+                status: 'active',
+                created: now,
+                updated: now
+            });
+            await createDummyRecord({
+                id: 'c',
+                email: 'c@c.com',
+                username: 'c',
+                first_name: null,
+                last_name: null,
+                status: 'dead',
+                created: now,
+                updated: now
+            });
+            await createDummyRecord({
+                id: 'd',
+                email: 'd@d.com',
+                username: 'd',
+                first_name: null,
+                last_name: null,
+                status: 'dead',
+                created: now,
+                updated: now
+            });
+        });
+
         it('should bulk delete everything (no criteria, no opts)', (done) => {
             crud._bulkDeletePermanently(null, (err, res) => {
                 should(err).not.be.ok();
                 should(res).be.ok();
 
-                res.affectedRows.should.be.exactly(1); // a
+                res.affectedRows.should.be.exactly(2); // a,b
                 res.changedRows.should.be.exactly(0);
 
                 done();
@@ -1011,11 +1346,11 @@ describe('CrudService', () => {
         });
 
         it('should bulk delete no conceal', (done) => {
-            crud._bulkDeletePermanently({ id: 'c' }, { conceal: false }, (err, res) => {
+            crud._bulkDeletePermanently({ id: 'd' }, { conceal: false }, (err, res) => {
                 should(err).not.be.ok();
                 should(res).be.ok();
 
-                res.affectedRows.should.be.exactly(1); // c
+                res.affectedRows.should.be.exactly(1); // d
                 res.changedRows.should.be.exactly(0);
 
                 done();
@@ -1039,7 +1374,7 @@ describe('CrudService', () => {
                 should(err).not.be.ok();
                 should(res).be.ok();
 
-                res.affectedRows.should.be.exactly(1); // dead, conveniently the last record in the db
+                res.affectedRows.should.be.exactly(1); // dead, c
                 res.changedRows.should.be.exactly(0);
 
                 done();
@@ -1105,6 +1440,7 @@ describe('CrudService', () => {
                 created: now,
                 updated: now
             }, (data, attempt) => {
+                attempt.should.be.lessThanOrEqual(2);
                 data.id = 'txn2'; // a will collide on first attempt, second will fix it
                 return data;
             }, { connection }, (err, doc) => {
