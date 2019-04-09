@@ -18,6 +18,7 @@ Note: requires the [`okanjo-app`](https://github.com/okanjo/okanjo-app) module.
 
 ### v3.0.0
 
+ * Node v10+ only (unless you polyfill Promise.prototype.finally support yourself)
  * Changed MySQL driver from [mysqljs/mysql](https://github.com/mysqljs/mysql) to [mysql/mysql-connector-nodejs](https://github.com/mysql/mysql-connector-nodejs)
  * MySQLService:
    * `config` options have changed. See [MySQLService](#MySQLService) for options.
