@@ -47,7 +47,7 @@ describe('CrudService', () => {
         };
 
         app.connectToServices(() => {
-            app.services.db.pool.should.be.ok();
+            app.services.db.client.should.be.ok();
 
             // Drop existing test database and table
             app.services.db.query('DROP DATABASE IF EXISTS `crud_test`;', (err) => {
@@ -89,6 +89,11 @@ describe('CrudService', () => {
             });
         });
 
+    });
+
+    after(async () => {
+        // close the pool, since it'll hold open the app
+        await app.services.db.close();
     });
 
     let crud;
@@ -1020,6 +1025,24 @@ describe('CrudService', () => {
             });
         });
 
+        it('should error if you botch a data type', (done) => {
+            crud._retrieve('a', null, (err, doc) => {
+                should(err).not.be.ok();
+                should(doc).be.ok();
+
+                doc.created = 'KABOOM';
+
+                crud._update(doc, {}, null, (err, doc2) => {
+                    should(err).be.ok();
+                    should(doc2).not.be.ok();
+
+                    should(err.info.code).be.exactly(1292);
+
+                    done();
+                });
+            });
+        });
+
     });
 
     describe('_bulkUpdate', () => {
@@ -1064,8 +1087,7 @@ describe('CrudService', () => {
                 should(err).not.be.ok();
                 should(res).be.ok();
 
-                res.affectedRows.should.be.exactly(2);
-                res.changedRows.should.be.exactly(2);
+                res.result.getAffectedRowsCount().should.be.exactly(2);
 
                 done();
             });
@@ -1074,13 +1096,12 @@ describe('CrudService', () => {
 
         it('should not set updated when configured to do so', (done) => {
             crud.updatedField = null;
-            crud._bulkUpdate({ id: ['a','b'] }, { first_name: 'bulk' }, (err, res) => {
+            crud._bulkUpdate({ id: ['a','b'] }, { first_name: 'bulk' }, null, (err, res) => {
                 crud.updatedField = 'updated';
                 should(err).not.be.ok();
                 should(res).be.ok();
 
-                res.affectedRows.should.be.exactly(2); // we looked at 2 rows
-                res.changedRows.should.be.exactly(0); // but did not change them (updated didn't change)
+                res.result.getAffectedRowsCount().should.be.exactly(2); // we looked at 2 rows
 
                 done();
             });
@@ -1091,8 +1112,7 @@ describe('CrudService', () => {
                 should(err).not.be.ok();
                 should(res).be.ok();
 
-                res.affectedRows.should.be.exactly(3); // a, b, c  (dead not affected)
-                res.changedRows.should.be.exactly(3);
+                res.result.getAffectedRowsCount().should.be.exactly(3); // a, b, c  (dead not affected)
 
                 done();
             });
@@ -1103,8 +1123,7 @@ describe('CrudService', () => {
                 should(err).not.be.ok();
                 should(res).be.ok();
 
-                res.affectedRows.should.be.exactly(4); // a, b, c, dead
-                res.changedRows.should.be.exactly(4);
+                res.result.getAffectedRowsCount().should.be.exactly(4); // a, b, c, dead
 
                 done();
             });
@@ -1116,8 +1135,7 @@ describe('CrudService', () => {
                 should(res).be.ok();
 
 
-                res.affectedRows.should.be.exactly(4); // a, b, c, dead
-                res.changedRows.should.be.exactly(0);
+                res.result.getAffectedRowsCount().should.be.exactly(4); // a, b, c, dead
 
                 done();
             });
@@ -1129,8 +1147,18 @@ describe('CrudService', () => {
                 should(res).be.ok();
 
 
-                res.affectedRows.should.be.exactly(3); // a, b, c
-                res.changedRows.should.be.exactly(3);
+                res.result.getAffectedRowsCount().should.be.exactly(3); // a, b, c
+
+                done();
+            });
+        });
+
+        it('should handle errors', (done) => {
+            crud._bulkUpdate({ id: ['a','b'] }, { created: 'KABOOM' }, (err, res) => {
+                should(err).be.ok();
+                should(res).not.be.ok();
+
+                should(err.info.code).be.exactly(1292);
 
                 done();
             });
@@ -1216,8 +1244,7 @@ describe('CrudService', () => {
                 should(err).not.be.ok();
                 should(res).be.ok();
 
-                res.affectedRows.should.be.exactly(3);
-                res.changedRows.should.be.exactly(3);
+                res.result.getAffectedRowsCount().should.be.exactly(3);
 
                 done();
             });
@@ -1228,8 +1255,7 @@ describe('CrudService', () => {
                 should(err).not.be.ok();
                 should(res).be.ok();
 
-                res.affectedRows.should.be.exactly(1); // c
-                res.changedRows.should.be.exactly(0);
+                res.result.getAffectedRowsCount().should.be.exactly(1); // c
 
                 done();
             });
@@ -1274,7 +1300,7 @@ describe('CrudService', () => {
 
         it('should error when no id given', (done) => {
             const doc = {};
-            crud._deletePermanently(doc, (err, doc) => {
+            crud._deletePermanently(doc, null, (err, doc) => {
                 should(err).be.ok();
                 should(doc).be.exactly(doc);
 
@@ -1289,6 +1315,18 @@ describe('CrudService', () => {
                 should(doc2).be.ok();
 
                 doc2.should.be.exactly(doc);
+
+                done();
+            });
+        });
+
+        it('should handle errors', (done) => {
+            const doc = { id: {} };
+            crud._deletePermanently(doc, (err, doc2) => {
+                should(err).be.ok();
+                should(doc2).not.be.ok();
+
+                should(err.info.code).be.exactly(5003);
 
                 done();
             });
@@ -1338,8 +1376,7 @@ describe('CrudService', () => {
                 should(err).not.be.ok();
                 should(res).be.ok();
 
-                res.affectedRows.should.be.exactly(2); // a,b
-                res.changedRows.should.be.exactly(0);
+                res.result.getAffectedRowsCount().should.be.exactly(2); // a,b
 
                 done();
             });
@@ -1350,8 +1387,7 @@ describe('CrudService', () => {
                 should(err).not.be.ok();
                 should(res).be.ok();
 
-                res.affectedRows.should.be.exactly(1); // d
-                res.changedRows.should.be.exactly(0);
+                res.result.getAffectedRowsCount().should.be.exactly(1); // d
 
                 done();
             });
@@ -1362,8 +1398,7 @@ describe('CrudService', () => {
                 should(err).not.be.ok();
                 should(res).be.ok();
 
-                res.affectedRows.should.be.exactly(0); // lol dead things are concealed, so duh 0
-                res.changedRows.should.be.exactly(0);
+                res.result.getAffectedRowsCount().should.be.exactly(0); // lol dead things are concealed, so duh 0
 
                 done();
             });
@@ -1374,8 +1409,18 @@ describe('CrudService', () => {
                 should(err).not.be.ok();
                 should(res).be.ok();
 
-                res.affectedRows.should.be.exactly(1); // dead, c
-                res.changedRows.should.be.exactly(0);
+                res.result.getAffectedRowsCount().should.be.exactly(1); // dead, c
+
+                done();
+            });
+        });
+
+        it('should handle errors', (done) => {
+            crud._bulkDeletePermanently({ id: -1 }, null, (err, res) => {
+                should(err).be.ok();
+                should(res).not.be.ok();
+
+                // should(err.info.code).be.exactly(5003);
 
                 done();
             });
@@ -1386,29 +1431,32 @@ describe('CrudService', () => {
     describe('Transactions', () => {
 
         // All crud functions should work in a transaction w/ options
-        let connection;
+        let session;
 
         before((done) => {
-            app.services.db.getConnection((err, conn) => {
-                should(err).not.be.ok();
-                connection = conn;
+            app.services.db.getSession()
+                .then(sess => {
+                    session = sess;
 
-                connection.beginTransaction((err) => {
-                    should(err).not.be.ok();
-
-                    done(err);
+                    return session.startTransaction();
+                })
+                .then(() => {
+                    done();
+                })
+                .catch(err => {
+                    throw err;
                 });
-
-            });
         });
 
         after((done) => {
-            connection.commit((err) => {
-                should(err).not.be.ok();
-                connection.release();
-
-                done();
-            });
+            session.commit()
+                .then(() => {
+                    return session.close();
+                })
+                .then(() => {
+                    done();
+                })
+            ;
         });
 
         it('_create in transaction', (done) => {
@@ -1421,7 +1469,7 @@ describe('CrudService', () => {
                 status: 'active',
                 created: now,
                 updated: now
-            }, { connection }, (err, doc) => {
+            }, { session }, (err, doc) => {
                 should(err).not.be.ok();
                 should(doc).be.ok();
 
@@ -1443,7 +1491,7 @@ describe('CrudService', () => {
                 attempt.should.be.lessThanOrEqual(2);
                 data.id = 'txn2'; // a will collide on first attempt, second will fix it
                 return data;
-            }, { connection }, (err, doc) => {
+            }, { session }, (err, doc) => {
                 should(err).not.be.ok();
                 should(doc).be.ok();
 
@@ -1452,7 +1500,7 @@ describe('CrudService', () => {
         });
 
         it('_retrieve in transaction', (done) => {
-            crud._retrieve('txn', { connection }, (err, doc) => {
+            crud._retrieve('txn', { session }, (err, doc) => {
                 should(err).not.be.ok();
                 should(doc).be.ok();
 
@@ -1461,7 +1509,7 @@ describe('CrudService', () => {
         });
 
         it('_find in transaction', (done) => {
-            crud._find({ id: 'txn2' }, { connection }, (err, docs) => {
+            crud._find({ id: 'txn2' }, { session }, (err, docs) => {
                 should(err).not.be.ok();
                 should(docs).be.ok();
                 docs.length.should.be.exactly(1);
@@ -1471,7 +1519,7 @@ describe('CrudService', () => {
         });
 
         it('_count in transaction', (done) => {
-            crud._count({ id: 'txn2' }, { connection }, (err, count) => {
+            crud._count({ id: 'txn2' }, { session }, (err, count) => {
                 should(err).not.be.ok();
                 should(count).be.ok();
                 count.should.be.exactly(1);
@@ -1481,7 +1529,7 @@ describe('CrudService', () => {
         });
 
         it('_update in transaction', (done) => {
-            crud._update({ id: 'txn', first_name: 'changed' }, {}, { connection }, (err, doc) => {
+            crud._update({ id: 'txn', first_name: 'changed' }, {}, { session }, (err, doc) => {
                 should(err).not.be.ok();
                 should(doc).be.ok();
 
@@ -1490,19 +1538,18 @@ describe('CrudService', () => {
         });
 
         it('_bulkUpdate in transaction', (done) => {
-            crud._bulkUpdate({ id: 'txn' }, { last_name: 'bulk' }, { connection }, (err, res) => {
+            crud._bulkUpdate({ id: 'txn' }, { last_name: 'bulk' }, { session }, (err, res) => {
                 should(err).not.be.ok();
                 should(res).be.ok();
 
-                res.affectedRows.should.be.exactly(1);
-                res.changedRows.should.be.exactly(1);
+                res.result.getAffectedRowsCount().should.be.exactly(1);
 
                 done();
             });
         });
 
         it('_delete in transaction', (done) => {
-            crud._delete({ id: 'txn2' }, { connection }, (err, doc) => {
+            crud._delete({ id: 'txn2' }, { session }, (err, doc) => {
                 should(err).not.be.ok();
                 should(doc).be.ok();
 
@@ -1511,18 +1558,17 @@ describe('CrudService', () => {
         });
 
         it('_bulkDelete in transaction', (done) => {
-            crud._bulkDelete({ id: 'txn2' }, { connection }, (err, res) => {
+            crud._bulkDelete({ id: 'txn2' }, { session }, (err, res) => {
                 should(err).not.be.ok();
 
-                res.affectedRows.should.be.exactly(0);
-                res.changedRows.should.be.exactly(0);
+                res.result.getAffectedRowsCount().should.be.exactly(0);
 
                 done();
             });
         });
 
         it('_deletePermanently in transaction', (done) => {
-            crud._deletePermanently({ id: 'txn2' }, { connection }, (err, doc) => {
+            crud._deletePermanently({ id: 'txn2' }, { session }, (err, doc) => {
                 should(err).not.be.ok();
                 should(doc).be.ok();
 
@@ -1531,17 +1577,17 @@ describe('CrudService', () => {
         });
 
         it('_bulkDeletePermanently in transaction', (done) => {
-            crud._bulkDeletePermanently({ id: 'txn' }, { connection }, (err, res) => {
+            crud._bulkDeletePermanently({ id: 'txn' }, { session }, (err, res) => {
                 should(err).not.be.ok();
 
-                res.affectedRows.should.be.exactly(1);
+                res.result.getAffectedRowsCount().should.be.exactly(1);
 
                 done();
             });
         });
 
 
-    })
+    });
 
 
 });

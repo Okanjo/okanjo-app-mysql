@@ -1,6 +1,6 @@
 "use strict";
 
-const MySQL = require('mysql');
+const MySQL = require('@mysql/xdevapi');
 
 /**
  * MYSQL Database service
@@ -21,6 +21,14 @@ class MySQLService {
             throw new Error('MySQLService: `config` must be defined on initialization!');
         }
 
+        if (!this.config.session) {
+            throw new Error('MySQLService: `config.session` must be defined on initialization!');
+        }
+
+        // if (!this.config.client) {
+        //     throw new Error('MySQLService: `config.client` must be defined on initialization!');
+        // }
+
         app._serviceConnectors.push(async () => this.connect());
     }
 
@@ -29,76 +37,191 @@ class MySQLService {
      */
     async connect() {
         // Luckily, all we have to do here is define the pool
-        this.pool = MySQL.createPool(this.config);
+        this.client = MySQL.getClient(this.config.session, this.config.client);
     }
 
     /**
-     * Shortcut to issue a query to MySQL using any available connection
-     * @param {string} query
-     * @param {Object} [options]
-     * @param {function(err:*, results:*, fields:*)} [callback]
-     * @returns {Promise<{results:*,fields:*}>}
+     * Closes down the connection pool.
+     * @returns {Promise<void>}
      */
-    query(query, options, callback) {
-        return this.wrapQuery(this.pool, query, options, callback);
+    async close() {
+        if (this.client) await this.client.close();
+    }
+
+    // noinspection JSMethodCanBeStatic
+    /**
+     * Escapes a schema or field name
+     * @param {string} str – Identifier
+     * @returns {string} Escaped value that can safely go into a quoted string
+     */
+    escapeIdentifier(str) {
+        return (str || '')
+            .replace(/\\\\/g, '\\\\')
+            .replace(/"/g, '\\"')
+            .replace(/`/g, '``')
+        ;
     }
 
     /**
-     * Wrap a connection.query with a promise
-     * @param {*} connection
-     * @param {string} query
-     * @param {*} [options]
-     * @param {function} [callback]
-     * @returns {Promise<{results:*,fields:*}>}
+     * Converts query arguments into MySQL format (e.g. Date -> string)
+     * @param {[*]} args – Query arguments
+     * @returns {[*]} – Encoded query arguments
      */
-    wrapQuery(connection, query, options, callback) {
-        return new Promise((resolve, reject) => {
-
-            if (typeof options === "function") {
-                callback = options;
-                options = undefined;
+    encodeParams(args) {
+        return args.map((val) => {
+            // Convert Date objects into MySQL date strings
+            if (val instanceof Date) {
+                return val.toISOString().replace(/(T|\..*$)/g, ' ').trim();
+            } else {
+                return val;
             }
-            if (!options) {
-                options = undefined;
-            }
-
-            // Fire the query
-            connection.query(query, options, async (err, results, fields) => {
-
-                // Intercept and report query errors!
-                if (err) {
-                    await this.app.report('MySQLService: Query error', err, { query, options, results, fields });
-                    if (callback) { // noinspection JSUnresolvedFunction
-                        return callback(err);
-                    }
-                    return reject(err);
-                } else {
-                    if (callback) { // noinspection JSUnresolvedFunction
-                        return callback(null, {results, fields});
-                    }
-                    return resolve({ results, fields});
-                }
-            });
         });
     }
 
     /**
-     * Shortcut to get an exclusive connection from the pool (e.g. for transactions). DON'T FORGET TO `connection.release()`!
+     * Converts raw mysql row values back into native JavaScript types (e.g. timestamp -> Date)
+     * @param {[*]} args – Row values
+     * @param {[Column]} cols – Table Column objects
+     * @returns {[*]} – Decoded row values
      */
-    async getConnection(callback) {
+    decodeParams(args, cols) {
+        return args.map((val, i) => {
+            if (cols[i].type === 12) { // DATETIME
+                return new Date(val);
+            } else {
+                return val;
+            }
+        });
+    }
+
+    /**
+     * Query Execution wrapper
+     * @param {SqlExecute} query – mysqlx session.sql() query object
+     * @param {{supress:number?}} options – Execution functionality options
+     * @returns {Promise<any>}
+     */
+    execute(query, options={}) {
+        return new Promise(async (resolve, reject) => {
+            const records = []; // raw records received by the driver
+            let cols = [];      // raw metadata about the records (e.g. columns)
+            let rows = [];      // transformed rows to objects
+            let res;            // query response to get additional info about the query
+
+            try {
+                res = await query.execute(
+                    row => records.push(row),
+                    colGroup => cols = cols.concat(colGroup)
+                );
+
+                rows = records.map((raw) => {
+                    const row = {};
+                    let col;
+                    this.decodeParams(raw, cols).forEach((val, i) => {
+                        col = cols[i];
+                        row[col.getColumnName()] = val;
+                        // console.log(col)
+                    });
+                    return row;
+                });
+            } catch(err) {
+                if (!options.suppress || options.suppress !== err.info.code) {
+                    await this.app.report('MySQLService: Error executing query', err, {
+                        query,
+                        sql: query.getRawStatement ? query.getRawStatement() /* istanbul ignore next: idk if this is safe, so checking method is present before firing it  */ : null,
+                        info: err.info,
+                    });
+                }
+                return reject(err);
+            }
+
+            // Expose additional query data, without compromising default functionality
+            Object.defineProperties(rows, {
+                raw: {
+                    enumerable: false,
+                    value: records
+                },
+                result: {
+                    enumerable: false,
+                    value: res
+                },
+                cols: {
+                    enumerable: false,
+                    value: cols
+                }
+            });
+
+            return resolve(rows);
+        });
+    }
+
+    /**
+     * Issues a SQL query with parameterized arguments.
+     * @param {string} sql – Query string
+     * @param {Object} [args] – Query ordinal argument values
+     * @param {function(err:*, res:*?)} [callback] – Optional callback to fire when completed
+     * @param {{session:*?, suppress:number?}} [options] – Query functionality options
+     * @returns {Promise<{rows:*}>}
+     */
+    query(sql, args, callback, options) {
         return new Promise((resolve, reject) => {
-            this.pool.getConnection(async (err, connection) => {
-                /* istanbul ignore if: out of scope */
-                if (err) {
-                    await this.app.report('MySQLService: Could not get connection from pool!', err);
+            let resolveSession;
+
+            // args is optional
+            if (typeof args === "function") {
+                options = callback;
+                callback = args;
+                args = null;
+            }
+
+            // if a session was given, resolve it otherwise fetch a new session from the pool
+            if (options && options.session) {
+                resolveSession = Promise.resolve(options.session);
+            } else {
+                resolveSession = this.client.getSession();
+            }
+
+            let session;
+
+            resolveSession
+                .then(sess => {
+                    // hold session
+                    session = sess;
+
+                    // generate query
+                    const query = session.sql(sql);
+
+                    // bind query ordinal placeholders
+                    if (args) query.bind(this.encodeParams(args));
+
+                    // execute the query
+                    return this.execute(query, options);
+                })
+                .then(res => {
+                    // return the results if successful
+                    if (callback) return callback(null, res);
+                    return resolve(res);
+                })
+                .catch(async err => {
+                    // do not report, since this.execute should have done that
                     if (callback) return callback(err);
                     return reject(err);
-                } else {
-                    if (callback) return callback(null, connection);
-                    return resolve(connection);
-                }
-            });
+                })
+                .finally(() => {
+                    // close the session if one was pulled for this operation
+                    if (session && (!options || !options.session)) {
+                        return session.close();
+                    }
+                })
+            ;
         });
+    }
+
+    /**
+     * Gets a fresh session from the pool
+     * @returns {*|Promise<Session>}
+     */
+    getSession() {
+        return this.client.getSession();
     }
 }
 

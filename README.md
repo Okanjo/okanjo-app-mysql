@@ -16,7 +16,21 @@ Note: requires the [`okanjo-app`](https://github.com/okanjo/okanjo-app) module.
 
 ## Breaking Changes
 
+### v3.0.0
+
+ * Changed MySQL driver from [mysqljs/mysql](https://github.com/mysqljs/mysql) to [mysql/mysql-connector-nodejs](https://github.com/mysql/mysql-connector-nodejs)
+ * MySQLService:
+   * `config` options have changed. See [MySQLService](#MySQLService) for options.
+   * `pool` property has been removed. A new property `client` basically replaces the pool.
+   * `query` signature has changed from (query, options, callback) to (sql, args, callback, options)
+   * `wrapQuery` has been removed
+   * `getConnection` has been replaced with `getSession`
+ * CrudService:
+   * `connection` option in crud methods has been replaced with `session`. 
+   * `CrudService.MAX_VALUE` constant class has been replaced with a simple string version. 
+
 ### v2.0.0
+
  * MySQLService:
    * `query` callback now returns a single parameter `response` object with properties: `results` and `fields` for compatibility with promises
  * CrudService:
@@ -44,21 +58,30 @@ This is a basic configuration for the mysql service
 // Ordinarily, you would set normally and not use environment variables,
 // but this is for ease of running the example across platforms
 const host = process.env.MYSQL_HOST || '127.0.0.1';
-const port = process.env.MYSQL_PORT || '3306';
+const port = process.env.MYSQL_PORT || '33060';
 const user = process.env.MYSQL_USER || 'root';
 const password = process.env.MYSQL_PASS || 'unittest';
-const database = process.env.MYSQL_DB || undefined;
+const schema = process.env.MYSQL_DB || undefined;
 
 //noinspection JSUnusedGlobalSymbols
 module.exports = {
 
     mysql: {
-        connectionLimit : 10,
-        host,
-        port,
-        user,
-        password,
-        database
+        session: {
+            host,
+            port,
+            user,
+            password,
+            schema
+        },
+        client: {
+            pooling: {
+                enabled: true,
+                maxSize: 25,        // max num of active connections
+                maxIdleTime: 0,     // in ms, 0=infinite, how long a connection can be idle
+                queueTimeout: 0     // in ms, 0=infinite, how long to wait for an available conn from pool
+            }
+        }
     }
 
 };
@@ -70,7 +93,6 @@ Example app that creates a database and a table, inserts into the table, queries
 ```js
 "use strict";
 
-const MySQL = require('mysql'); // for type extraction
 const OkanjoApp = require('okanjo-app');
 const MySQLService = require('okanjo-app-mysql');
 
@@ -96,54 +118,58 @@ app.connectToServices().then(async () => {
 
     // - Make a database
     console.log('Creating database...');
-    await app.services.mysql.query(`DROP DATABASE IF EXISTS ??;`, [databaseName]);
-    await app.services.mysql.query(`CREATE DATABASE ??;`, [databaseName]);
+    await app.services.mysql.query(`DROP DATABASE IF EXISTS ${databaseName};`);
+    await app.services.mysql.query(`CREATE DATABASE ${databaseName};`);
 
     // - Make a table
     console.log('Creating table...');
     await app.services.mysql.query(`
-        CREATE TABLE ??.?? (
+        CREATE TABLE ${databaseName}.${tableName} (
             id INT UNSIGNED NOT NULL PRIMARY KEY,
             name VARCHAR(255) NULL DEFAULT null
-        )`,
-        [databaseName, tableName]
+        )`
     );
 
     // - Insert records
     console.log('Inserting records...');
     await app.services.mysql.query(
-        `INSERT INTO ??.?? (id, name) VALUES ?;`,
-        [databaseName, tableName, [
-            [1, 'apples'],
-            [2, 'grapes']
-        ]]
+        `INSERT INTO ${databaseName}.${tableName} (id, name) VALUES 
+            (?, ?),
+            (?, ?);`,
+        [
+            1, 'apples',
+            2, 'grapes'
+        ]
     );
 
     // - Show the records
     console.log('Selecting all records...');
-    let { results, fields } = await app.services.mysql.query(`SELECT * FROM ??.??`, [databaseName, tableName]);
-    results.forEach((row) => {
+    let rows = await app.services.mysql.query(`SELECT * FROM ${databaseName}.${tableName}`);
+    rows.forEach((row) => {
         console.log(' * Row id: %d, name: %s', row.id, row.name);
     });
 
-    console.log('Fields:');
-    const typeToName = (type) => Object.keys(MySQL.Types).find((key) => MySQL.Types[key] === type);
-    fields.forEach((field) => {
-        console.log(' * %s.%s.%s -> %s(%d)', field.db, field.table, field.name, typeToName(field.type), field.length)
+    // You have access to the Result object:
+    console.log(' * Warnings: %d', rows.result.getWarningsCount());
+
+    // You also have access to the result columns
+    console.log('Columns:');
+    rows.cols.forEach(col => {
+        console.log(' * %s.%s.%s, length = %d', col.schema, col.table, col.name, col.length);
     });
 
     // - Query for a specific record
     console.log('Selecting record #1...');
-    ({ results } = await app.services.mysql.query(`SELECT * FROM ??.??WHERE id = ?;`, [ databaseName, tableName, 1 ]));
+    rows = await app.services.mysql.query(`SELECT * FROM ${databaseName}.${tableName} WHERE id = ?;`, [ 1 ]);
 
-    console.log(' * Row id: %d, name: %s', results[0].id, results[0].name);
+    console.log(' * Row id: %d, name: %s', rows[0].id, rows[0].name);
 
     // - Delete the database
     console.log('Dropping database...');
-    await app.services.mysql.query(`DROP DATABASE ??;`, databaseName);
+    await app.services.mysql.query(`DROP DATABASE ${databaseName};`);
 
     console.log('DONE!');
-    process.exit(0);
+    await app.services.mysql.close();
 });
 ```
 
@@ -155,13 +181,15 @@ Inserting records...
 Selecting all records...
  * Row id: 1, name: apples
  * Row id: 2, name: grapes
-Fields:
- * my_database.my_table.id -> LONG(10)
- * my_database.my_table.name -> VAR_STRING(765)
+ * Warnings: 0
+Columns:
+ * my_database.my_table.id, length = 10
+ * my_database.my_table.name, length = 255
 Selecting record #1...
  * Row id: 1, name: apples
 Dropping database...
 DONE!
+
 ```
 
 A runnable version of this application can be found in [docs/example-app](https://github.com/okanjo/okanjo-app-mysql/tree/master/docs/example-app).
@@ -174,52 +202,72 @@ MySQL management class. Must be instantiated to be used.
 ## Properties
 * `service.app` – (read-only) The OkanjoApp instance provided when constructed
 * `service.config` – (read-only) The mysql service configuration provided when constructed
-* `service.pool` – (read-only) The underlying [mysqljs/mysql](https://github.com/mysqljs/mysql) connection pool 
+* `service.client` – (read-only) The underlying [mysql/mysql-connector-nodejs](https://github.com/mysql/mysql-connector-nodejs) connection pool 
 
 ## Methods
 
 ### `new MySQLService(app, [config])`
+
 Creates a new mysql service instance.
+
 * `app` – The OkanjoApp instance to bind to
 * `config` – (Required) The mysql service configuration object.
-  * The configuration extends the [mysqljs/mysql](https://github.com/mysqljs/mysql#connection-options) connection pool configuration. See there for additional options.
-  * `config.host` – Server hostname or ip address
-  * `config.port` – Server port
-  * `config.user` – Username to login as 
-  * `config.password` – Password for the user 
-  * `config.database` – (optional) Sets the context database if given. 
+  * `config.session` – The session config. See [mysql/mysql-connector-nodejs](https://github.com/mysql/mysql-connector-nodejs) for more options.
+  * `config.session.host` – Server hostname or ip address
+  * `config.session.port` – Server port
+  * `config.session.user` – Username to login as 
+  * `config.session.password` – Password for the user 
+  * `config.session.schema` – (optional) Sets the context database if given.
+  * `config.client` – The client config.  See [mysql/mysql-connector-nodejs](https://github.com/mysql/mysql-connector-nodejs) for more options.
+  * `config.client.pooling` – Pooling options
+  * `config.client.pooling.enabled` – Enable connection pooling.
+  * `config.client.pooling.maxSize` – Maximum number of active connections to allow in the pool.
+  * `config.client.pooling.maxIdleTime` – Maximum connection idle time. 0=Infinity
+  * `config.client.pooling.queueTimeout` – Maximum amount of time to wait for a connection when pool is full. 0=Infinity
 
-### `service.query(query, [options,] [callback])`
+### `async service.connect()`
+Initializes the connection pool client. Automatically called when app starts.
+
+### `async service.close()`
+Closes down the connection pool client.
+
+### `service.escapeIdentifier(str)`
+Escapes an identifier for use in a SQL query. For example, a schema name or column name.
+
+### `service.encodeParams(args)` 
+Internal. Encodes row arguments for use in a SQL query. For example, Date objects are converted to MySQL date strings.
+* Returns array of encoded row arguments.
+
+### `service.decodeParams(args, cols)`
+Internal. Decodes row arguments for use in the application. For example, DATETIME fields are converted back to a Date object.
+* Returns array of decoded row arguments.
+
+### `service.execute(query, options={})`
+Internal. Wrapper around the xmysql client SqlExecute execute function. Handles encoding and decoding of row arguments.
+ * `query` – SqlExecute query
+ * `options` – Optional options
+   * `options.suppress` - An error code number to suppress
+ * Returns a Promise<rows> 
+
+### `service.query(sql, args, [callback], [options])`
 Executes a query on the connection pool. See [mysqljs/mysql](https://github.com/mysqljs/mysql#performing-queries) for more query options.
-* `query` – String or object query to execute
-* `options` – (optional) Query arguments, such as values for prepared statements
-* `callback(err, { results, fields })`– (optional) Function to fire when query completes
+* `sql` – SQL string to execute
+* `args` – Query arguments for prepared statements.
+* `callback(err, rows)`– (optional) Function to fire when query completes
   * `err` – Error if applicable
-  * `res` – Response object containing:
-    * `results` – The rows or result of the query
-    * `fields` – The fields contained in the results
-* Returns a Promise
+  * `rows` – Array of records
+    * `results` – The query Result object.
+    * `cols` – The metadata Column objects.
+* `options` – (optional) Query options
+  * `options.session` – Session to exectute the query in. If none given, a new Session will be pulled from the pool.
+  * `options.suppress` – An error code to suppress
+* Returns a Promise<rows>
 
-### `service.wrapQuery(connection, query, [options,] [callback])`
-Executes a query on the given connection. See [mysqljs/mysql](https://github.com/mysqljs/mysql#performing-queries) for more query options.
-* `connection` – An MySQL connection instance or connection pool. E.g. `service.pool`
-* `query` – String or object query to execute
-* `options` – (optional) Query arguments, such as values for prepared statements
-* `callback(err, { results, fields })`– (optional) Function to fire when query completes
-  * `err` – Error if applicable
-  * `res` – Response object containing:
-    * `results` – The rows or result of the query
-    * `fields` – The fields contained in the results
-* Returns a Promise
-
-### `service.getConnection([callback])`
-Gets a dedicated connection from the pool. You must release it back to the pool when you are finished with it.
-* `callback(err, connection)` – (optional) Function to fire when connection has been obtained
-  * `err` – Error if there was an issue getting the connection from the pool
-  * `connection` – The dedicated [mysqljs/mysql]() connection
-* Returns a Promise
+### `service.getSession()`
+Gets a dedicated session from the pool. You must release it back to the pool when you are finished with it.
+* Returns a Promise<Session>
   
-> Note: You must call `connection.release();` when you have finished using the connection to return it back to the pool.
+> Note: You must call `session.close();` when you have finished using the session to return it back to the pool.
 
 ## Events
 
@@ -274,7 +322,7 @@ Creates a new instance. Ideally, you would extend it and call it via `super(app,
 Creates a new row.
 * `data` – The row object to store
 * `options` – (Optional) Query options
-  * `options.connection` – The connection to execute the query on. Defaults to the service pool.
+  * `options.session` – The connection to execute the query on. Defaults to the service pool.
   * `options.suppressCollisionError` - Internal flag to suppress automatically reporting the error if it is a collision
 * `callback(err, doc)` – (Optional) Function fired when completed
   * `err` – Error, if occurred
@@ -289,7 +337,7 @@ This is useful when you store rows that have unique fields (e.g. an API key) tha
   * `data` – The row object to store
   * `attempt` – The attempt number, starting at `0`
 * `options` – (Optional) Query options
-  * `options.connection` – The connection to execute the query on. Defaults to the service pool.
+  * `options.session` – The connection to execute the query on. Defaults to the service pool.
 * `callback(err, doc)` – (Optional) Function fired when completed
   * `err` – Error, if occurred
   * `doc` – The new row that was created
@@ -299,7 +347,7 @@ This is useful when you store rows that have unique fields (e.g. an API key) tha
 Retrieves a single row from the table.
 * `id` – The id of the row.
 * `options` – (Optional) Query options
-  * `options.connection` – The connection to execute the query on. Defaults to the service pool.
+  * `options.session` – The connection to execute the query on. Defaults to the service pool.
 * `callback(err, doc)` – (Optional) Function fired when completed
   * `err` – Error, if occurred
   * `doc` – The row if found or `null` if not found
@@ -315,10 +363,10 @@ Finds rows matching the given criteria. Supports pagination, field selection and
   * `options.sort` – Sorts the results by the given fields (same syntax as mongo sorts, e.g. `{ field: 1, reverse: -1 }`). Default is unset.
   * `options.conceal` – Whether to conceal dead resources. Default is `true`. 
   * `options.mode` – (Internal) Query mode, used to toggle query modes like SELECT COUNT(*) queries
-  * `options.connection` – The connection to execute the query on. Defaults to the service pool.
+  * `options.session` – The connection to execute the query on. Defaults to the service pool.
 * `callback(err, rows)` – (Optional) Fired when completed
   * `err` – Error, if occurred
-  * `docs` – The array of rows returned or `[]` if none found.
+  * `rows` – The array of rows returned or `[]` if none found.
 * Returns a promise
 
 #### Special operators
@@ -339,7 +387,7 @@ Counts the number of matched records.
 * `criteria` – Object with field-value pairs. Supports some special [mongo-like operators](#Special operators)
 * `options` – (Optional) Additional query options
   * `options.conceal` – Whether to conceal dead resources. Default is `true`.
-  * `options.connection` – The connection to execute the query on. Defaults to the service pool.
+  * `options.session` – The connection to execute the query on. Defaults to the service pool.
 * `callback(err, count)` – (Optional) Fired when completed
   * `err` – Error, if occurred
   * `count` – The number of matched rows or `0` if none found.
@@ -350,10 +398,10 @@ Updates the given row and optionally applies user-modifiable fields, if service 
 * `doc` – The row to update. Must include configured id field.  
 * `data` – (Optional) Additional pool of key-value fields. Only keys that match `service._modifiableKeys` will be copied if present. Useful for passing in a request payload and copying over pre-validated data as-is.
 * `options` – (Optional) Query options
-  * `options.connection` – The connection to execute the query on. Defaults to the service pool.  
-* `callback(err, res)` – (Optional) Fired when completed
+  * `options.session` – The connection to execute the query on. Defaults to the service pool.  
+* `callback(err, rows)` – (Optional) Fired when completed
   * `err` – Error, if occurred
-  * `res` – The MySQL response. Contains properties like `res.affectedRows` and `res.changedRows`.
+  * `rows` – The MySQL response. Contains properties like `rows.result.getAffectedRowsCount()` and `res.result.getWarnings()`.
 * Returns a promise
   
 ### `_bulkUpdate(criteria, data, [options], [callback])`
@@ -362,20 +410,20 @@ Updates all rows matching the given criteria with the new column values.
 * `data` – Field-value pairs to set on matched rows
 * `options` – (Optional) Additional query options
   * `options.conceal` – Whether to conceal dead resources. Default is `true`.
-  * `options.connection` – The connection to execute the query on. Defaults to the service pool.
-* `callback(err, res)` – (Optional) Fired when completed
+  * `options.session` – The connection to execute the query on. Defaults to the service pool.
+* `callback(err, rows)` – (Optional) Fired when completed
   * `err` – Error, if occurred
-  * `res` – The MySQL response. Contains properties like `res.affectedRows` and `res.changedRows`.
+  * `rows` – The MySQL response. Contains properties like `rows.result.getAffectedRowsCount()` and `res.result.getWarnings()`.
 * Returns a promise
 
 ### `_delete(row, [options], [callback])`
 Fake-deletes a row from the table. In reality, it just sets its status to `dead` (or whatever the value of `service._deletedStatus` is).
 * `doc` – The row to delete. Must include configured id field.
 * `options` – (Optional) Query options
-  * `options.connection` – The connection to execute the query on. Defaults to the service pool.  
-* `callback(err, res)` – (Optional) Fired when completed
+  * `options.session` – The connection to execute the query on. Defaults to the service pool.  
+* `callback(err, rows)` – (Optional) Fired when completed
   * `err` – Error, if occurred
-  * `res` – The MySQL response. Contains properties like `res.affectedRows` and `res.changedRows`.
+  * `rows` – The MySQL response. Contains properties like `rows.result.getAffectedRowsCount()` and `res.result.getWarnings()`.
 * Returns a promise
   
 ### `_bulkDelete(criteria, [options], [callback])`
@@ -383,20 +431,20 @@ Fake-deletes all rows matching the given criteria.
 * `criteria` – Object with field-value pairs. Supports some special [mongo-like operators](#Special operators)
 * `options` – (Optional) Additional query options
   * `options.conceal` – Whether to conceal dead resources. Default is `true`.
-  * `options.connection` – The connection to execute the query on. Defaults to the service pool.
-* `callback(err, res)` – (Optional) Fired when completed
+  * `options.session` – The connection to execute the query on. Defaults to the service pool.
+* `callback(err, rows)` – (Optional) Fired when completed
   * `err` – Error, if occurred
-  * `res` – The MySQL response. Contains properties like `res.affectedRows` and `res.changedRows`.
+  * `rows` – The MySQL response. Contains properties like `rows.result.getAffectedRowsCount()` and `res.result.getWarnings()`.
 * Returns a promise
 
 ### `_deletePermanently(row, [options], [callback])`
 Permanently deletes a row from the table. This is destructive!
 * `doc` – The row to delete. Must include configured id field.
 * `options` – (Optional) Query options
-  * `options.connection` – The connection to execute the query on. Defaults to the service pool.   
-* `callback(err, res)` – (Optional) Fired when completed
+  * `options.session` – The connection to execute the query on. Defaults to the service pool.   
+* `callback(err, rows)` – (Optional) Fired when completed
   * `err` – Error, if occurred
-  * `res` – The MySQL response. Contains properties like `res.affectedRows` and `res.changedRows`.
+  * `rows` – The MySQL response. Contains properties like `rows.result.getAffectedRowsCount()` and `res.result.getWarnings()`.
 * Returns a promise
 
 ### `_bulkDeletePermanently(criteria, [options], [callback])`
@@ -404,10 +452,10 @@ Permanently deletes all rows matching the given criteria.
 * `criteria` – Object with field-value pairs. Supports some special [mongo-like operators](#Special operators)
 * `options` – (Optional) Additional query options
   * `options.conceal` – Whether to conceal dead resources. Default is `true`.
-  * `options.connection` – The connection to execute the query on. Defaults to the service pool.
-* `callback(err, res)` – (Optional) Fired when completed
+  * `options.session` – The connection to execute the query on. Defaults to the service pool.
+* `callback(err, rows)` – (Optional) Fired when completed
   * `err` – Error, if occurred
-  * `res` – The MySQL response. Contains properties like `res.affectedRows` and `res.changedRows`.
+  * `rows` – The MySQL response. Contains properties like `rows.result.getAffectedRowsCount()` and `res.result.getWarnings()`.
 * Returns a promise
   
 ## Events
@@ -429,12 +477,16 @@ For example:
 
 ```bash
 docker pull mysql:5.7
-docker run -d -p 3306:3306 -e MYSQL_ROOT_PASSWORD=unittest mysql:5.7
+docker pull mysql:8
+docker run -d -p 3306:3306 -p 33060:33060 -e MYSQL_ROOT_PASSWORD=unittest mysql:5.7
+docker run -d -p 3307:3306 -p 33070:33060 -e MYSQL_ROOT_PASSWORD=unittest mysql:8
+
 ```
 
 To run unit tests and code coverage:
 ```sh
-MYSQL_HOST=192.168.99.100 MYSQL_PORT=3306 MYSQL_USER=root MYSQL_PASS=unittest npm run report
+MYSQL_HOST=localhost MYSQL_PORT=33060 MYSQL_USER=root MYSQL_PASS=unittest npm run report
+MYSQL_HOST=localhost MYSQL_PORT=33070 MYSQL_USER=root MYSQL_PASS=unittest npm run report
 ```
 
 Update the `MYSQL_*` environment vars to match your docker host (e.g. host, port, user, pass etc)
