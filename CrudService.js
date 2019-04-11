@@ -21,7 +21,7 @@ class CrudService {
 
         // Required settings
         this.service = options.service;
-        this.database = options.database || this.service.config.database; // default to the service connection database param, if given
+        this.schema = options.schema || options.database || this.service.config.schema; // default to the service connection database param, if given
         this.table = options.table;
 
         // Optional settings
@@ -53,19 +53,134 @@ class CrudService {
         /**
          * Whether to actively prevent dead resources from returning in find and retrieve calls
          * @type {boolean}
-         * @private
+         * @protected
          */
         this._concealDeadResources = options.concealDeadResources !== undefined ? options.concealDeadResources : true;
 
-        this._retrieve = Util.promisify(this._retrieve.bind(this));
-        this._find = Util.promisify(this._find.bind(this));
-        this._count = Util.promisify(this._count.bind(this));
-        this._update = Util.promisify(this._update.bind(this));
-        this._bulkUpdate = Util.promisify(this._bulkUpdate.bind(this));
-        this._delete = Util.promisify(this._delete.bind(this));
-        this._bulkDelete = Util.promisify(this._bulkDelete.bind(this));
-        this._deletePermanently = Util.promisify(this._deletePermanently.bind(this));
-        this._bulkDeletePermanently = Util.promisify(this._bulkDeletePermanently.bind(this));
+        this.retrieve = Util.promisify(this.retrieve.bind(this));
+        this.find = Util.promisify(this.find.bind(this));
+        this.count = Util.promisify(this.count.bind(this));
+        this.update = Util.promisify(this.update.bind(this));
+        this.bulkUpdate = Util.promisify(this.bulkUpdate.bind(this));
+        this.delete = Util.promisify(this.delete.bind(this));
+        this.bulkDelete = Util.promisify(this.bulkDelete.bind(this));
+        this.deletePermanently = Util.promisify(this.deletePermanently.bind(this));
+        this.bulkDeletePermanently = Util.promisify(this.bulkDeletePermanently.bind(this));
+    }
+
+    /**
+     * Hook to create the database schema if it does not exist
+     * @param {module:Session} session - Active session
+     * @returns {Promise<module:Schema>} – Created Schema
+     * @protected
+     */
+    async _createSchema(session) {
+        // const schema = await session.createSchema(this.schema);
+        return await session.createSchema(this.schema);
+        // Remember to return the created schema
+    }
+
+    // noinspection JSMethodCanBeStatic
+    /**
+     * Hook to update the database schema if it already exists
+     * @param {module:Session} session - Active session
+     * @param {module:Schema} schema - Existing Schema
+     * @returns {Promise<module:Schema>} – Updated Schema
+     * @protected
+     */
+    async _updateSchema(session, schema) {
+        // Could add/remove views, triggers, procedures, you name it...
+        // Remember to return the updated schema
+        return schema;
+    }
+
+    /**
+     * Hook to create the database table if it does not exist
+     * @param {module:Session} session – Active session
+     * @param {module:Schema} schema – Existing Schema
+     * @returns {Promise<void>}
+     * @protected
+     */
+    async _createTable(session, schema) {
+        const err = new Error('CrudService: Method _createTable must be overridden to properly create your table');
+        await this.app.report(err, { schema: this.schema, table: this.table });
+        throw err;
+
+        // For example, you might want to do something like this:
+        // const res = await session.sql(`
+        //     CREATE TABLE ${this.schema}.${this.table} (
+        //         \`id\` varchar(255) NOT NULL,
+        //         \`name\` varchar(255) NOT NULL,
+        //         \`status\` varchar(255) NOT NULL,
+        //         \`created\` datetime NOT NULL,
+        //         \`updated\` datetime NOT NULL,
+        //         PRIMARY KEY (\`id\`),
+        //     ) ENGINE=InnoDB DEFAULT CHARSET=utf8;
+        // `).execute();
+    }
+
+    /**
+     * Hook to update a table if it already exists
+     * @param {module:Session} session – Active session
+     * @param {module:Table} table – Existing Table
+     * @returns {Promise<void>}
+     * @protected
+     */
+    async _updateTable(session, table) {
+        // Could add/remove columns, indices, FK's, you name it...
+    }
+
+    /**
+     * Initializes the database and table. Use this._createSchema, this._createTable, this._updateSchema, this._updateTable hooks for implementation
+     * @returns {Promise<void>}
+     */
+    async init() {
+        // Get a new session
+        const session = await this.service.getSession();
+
+        // Start a transaction to prevent races
+        await session.startTransaction();
+
+        try {
+
+            // Schema exists?
+            let schema = session.getSchema(this.schema);
+            let exists = await schema.existsInDatabase();
+            if (!exists) {
+                // No, let the operator create it
+                schema = await this._createSchema(session);
+            } else {
+                // Let the app update anything it wants to here
+                schema = await this._updateSchema(session, schema)
+            }
+
+            // Table exists?
+            const table = session.getSchema(this.schema).getTable(this.table);
+            exists = await table.existsInDatabase();
+            if (!exists) {
+                // No, let the operator create it
+                await this._createTable(session, schema);
+            } else {
+                // Let the app update anything it wants to here
+                await this._updateTable(session, table);
+            }
+
+            // Commit the results
+            await session.commit();
+
+        } catch (err) {
+            await this.app.report('CrudService: Failed to initialize', err, { schema: this.schema, table: this.table });
+
+            // Abort
+            await session.rollback();
+
+            // rethrow
+            throw err;
+
+        } finally {
+            // Always close the session when done
+            await session.close();
+        }
     }
 
     /**
@@ -73,9 +188,8 @@ class CrudService {
      * @param {*} data - Record properties
      * @param {*} [options] – Query options
      * @param {function(err:*, data:*?)} [callback]
-     * @protected
      */
-    _create(data, options, callback) {
+    create(data, options, callback) {
         if (typeof options === "function") {
             callback = options;
             options = {};
@@ -90,7 +204,7 @@ class CrudService {
                 return `\`${this.service.escapeIdentifier(field)}\` = ?`;
             });
 
-            let sql = `INSERT INTO \`${this.service.escapeIdentifier(this.database)}\`.\`${this.service.escapeIdentifier(this.table)}\` SET ` + sets.join(', ');
+            let sql = `INSERT INTO \`${this.service.escapeIdentifier(this.schema)}\`.\`${this.service.escapeIdentifier(this.table)}\` SET ` + sets.join(', ');
 
             return this.service.query(
                 sql,
@@ -132,9 +246,8 @@ class CrudService {
      * @param {function(data:*,attempt:Number)} objectClosure - Called to obtain the object row properties before save
      * @param {*} [options] – Query options
      * @param {function(err:*, data:*?)} [callback]
-     * @protected
      */
-    _createWithRetry(data, objectClosure, options, callback) {
+    createWithRetry(data, objectClosure, options, callback) {
         if (typeof options === "function") {
             callback = options;
             options = null;
@@ -146,11 +259,11 @@ class CrudService {
             for (let i = 0; i < this._createRetryCount; i++) {
                 let doc;
                 try {
-                    doc = await this._create(await objectClosure(data, i), options)
+                    doc = await this.create(await objectClosure(data, i), options)
                 } catch(err) {
                     if (err.info.code === CrudService._collisionErrorCode) {
                         if (this._createRetryCount === (i+1)) {
-                            await this.app.report('CrudService: All attempts failed to create record due to collisions!', { err, data, database: this.database, table: this.table });
+                            await this.app.report('CrudService: All attempts failed to create record due to collisions!', { err, data, database: this.schema, table: this.table });
                             if (callback) return callback(err);
                             return reject(err);
                         } else {
@@ -178,9 +291,8 @@ class CrudService {
      * @param {string} id - Row identifier
      * @param {*} [options] – Query options
      * @param {function(err:Error, row:*)} callback – Fired when completed
-     * @protected
      */
-    _retrieve(id, options, callback) {
+    retrieve(id, options, callback) {
 
         if (typeof options === 'function') {
             callback = options;
@@ -191,7 +303,7 @@ class CrudService {
 
         // Only do a query if there's something to query for
         if (id !== undefined && id !== null) {
-            let sql = `SELECT * FROM \`${this.service.escapeIdentifier(this.database)}\`.\`${this.service.escapeIdentifier(this.table)}\` WHERE \`${this.service.escapeIdentifier(this.idField)}\` = ?`;
+            let sql = `SELECT * FROM \`${this.service.escapeIdentifier(this.schema)}\`.\`${this.service.escapeIdentifier(this.table)}\` WHERE \`${this.service.escapeIdentifier(this.idField)}\` = ?`;
             const args = [id];
 
             // If conceal mode is activated, prevent dead resources from returning
@@ -231,9 +343,8 @@ class CrudService {
      * @param {{[skip]:number, [take]:number, [fields]:string|*, [sort]:*, [mode]:string}} [options] - Query options
      * @param {function(err:Error, results:*)} callback – Fired when completed
      * @return {Query}
-     * @protected
      */
-    _find(criteria, options, callback) {
+    find(criteria, options, callback) {
 
         // Allow overloading by skipping options
         if (typeof options === "function") {
@@ -298,7 +409,7 @@ class CrudService {
             fieldsSql = allowedFields.map((field) => `\`${this.service.escapeIdentifier(field)}\``).join(', ');
         }
 
-        let sql = `SELECT ${fieldsSql} FROM \`${this.service.escapeIdentifier(this.database)}\`.\`${this.service.escapeIdentifier(this.table)}\``;
+        let sql = `SELECT ${fieldsSql} FROM \`${this.service.escapeIdentifier(this.schema)}\`.\`${this.service.escapeIdentifier(this.table)}\``;
 
         // Attach the where clause
         if (where.length > 0) sql += ` WHERE ${where.join(' AND ')}`;
@@ -405,9 +516,8 @@ class CrudService {
      * @param {{[skip]:number, [take]:number, [fields]:string|*, [sort]:*, [exec]:boolean}} [options] - Query options
      * @param {function(err:Error, docs:number)} callback – Fired when completed
      * @return {Query}
-     * @protected
      */
-    _count(criteria, options, callback) {
+    count(criteria, options, callback) {
         // Allow overloading by skipping options
         if (typeof options === "function") {
             //noinspection JSValidateTypes
@@ -427,7 +537,7 @@ class CrudService {
 
 
         // Exec the count query
-        return this._find(criteria, options, (err, res) => {
+        return this.find(criteria, options, (err, res) => {
             callback(err, res && res.length > 0 && res[0].count)
         });
     }
@@ -456,9 +566,8 @@ class CrudService {
      * @param [data] - Data to apply to the row before saving
      * @param [options] – Query options
      * @param {function(err:*, row:*?)} callback – Fired when saved or failed to save
-     * @protected
      */
-    async _update(doc, data, options, callback) {
+    update(doc, data, options, callback) {
 
         // Allow overloading of _update(obj, callback)
         if (typeof data === "function") {
@@ -480,9 +589,10 @@ class CrudService {
 
         // Make sure we know what we are updating!
         if (doc[this.idField] === undefined) {
-            await this.app.report('CrudService: Cannot update row if id field not provided!', { doc, data, idField: this.idField });
-            // noinspection JSUnresolvedFunction
-            callback(new Error('CrudService: Cannot update row if id field not provided'), null);
+            this.app.report('CrudService: Cannot update row if id field not provided!', { doc, data, idField: this.idField }).then(() => {
+                // noinspection JSUnresolvedFunction
+                callback(new Error('CrudService: Cannot update row if id field not provided'), null);
+            });
         } else {
 
             // Remove the id field from the query so we're not randomly setting id=id in there
@@ -495,7 +605,7 @@ class CrudService {
             });
 
 
-            let sql = `UPDATE \`${this.service.escapeIdentifier(this.database)}\`.\`${this.service.escapeIdentifier(this.table)}\` SET ${sets.join(', ')} WHERE \`${this.service.escapeIdentifier(this.idField)}\` = ?`;
+            let sql = `UPDATE \`${this.service.escapeIdentifier(this.schema)}\`.\`${this.service.escapeIdentifier(this.table)}\` SET ${sets.join(', ')} WHERE \`${this.service.escapeIdentifier(this.idField)}\` = ?`;
             args.push(doc[this.idField]);
 
             return this.service.query(
@@ -533,9 +643,8 @@ class CrudService {
      * @param {*} data – Column-value properties to set on each matched record
      * @param {{connection:*, conceal:boolean}} [options] – Additional options
      * @param {function(err:Error, res:*?)} callback – Fired when completed
-     * @protected
      */
-    _bulkUpdate(criteria, data, options, callback) {
+    bulkUpdate(criteria, data, options, callback) {
 
         // Allow overloading of _bulkUpdate(obj, data, callback)
         if (typeof options === "function") {
@@ -560,7 +669,7 @@ class CrudService {
             return `\`${this.service.escapeIdentifier(field)}\` = ?`;
         });
 
-        let sql = `UPDATE \`${this.service.escapeIdentifier(this.database)}\`.\`${this.service.escapeIdentifier(this.table)}\` SET ${sets.join(', ')}`;
+        let sql = `UPDATE \`${this.service.escapeIdentifier(this.schema)}\`.\`${this.service.escapeIdentifier(this.table)}\` SET ${sets.join(', ')}`;
 
         let where = [];
 
@@ -619,11 +728,10 @@ class CrudService {
      * @param {*} doc - Row to update
      * @param {*} [options] – Query options
      * @param {function(err:Error, obj:*?)} [callback] – Fired when saved or failed to save
-     * @protected
      */
-    _delete(doc, options, callback) {
+    delete(doc, options, callback) {
         doc.status = this._deletedStatus;
-        return this._update(doc, null, options, (err, doc) => {
+        return this.update(doc, null, options, (err, doc) => {
             callback(err, doc);
         });
     }
@@ -633,9 +741,8 @@ class CrudService {
      * @param {*} criteria – Query criteria (just like _find)
      * @param {{conceal:boolean}} [options] – Additional options
      * @param {function(err:Error, res:*?)} callback – Fired when completed
-     * @protected
      */
-    _bulkDelete(criteria, options, callback) {
+    bulkDelete(criteria, options, callback) {
 
         // Allow overloading of _bulkUpdate(obj, data, callback)
         if (typeof options === "function") {
@@ -643,7 +750,7 @@ class CrudService {
             options = {};
         }
 
-        return this._bulkUpdate(criteria, { status: this._deletedStatus }, options, callback);
+        return this.bulkUpdate(criteria, { status: this._deletedStatus }, options, callback);
     }
 
     /**
@@ -651,9 +758,8 @@ class CrudService {
      * @param {*} doc - row to delete
      * @param {*} [options] - Query options
      * @param {function(err:Error, obj:*?)} [callback] - Fired when deleted or failed to delete
-     * @protected
      */
-    _deletePermanently(doc, options, callback) {
+    deletePermanently(doc, options, callback) {
 
         if (typeof options === 'function') {
             callback = options;
@@ -669,7 +775,7 @@ class CrudService {
             });
         } else {
 
-            let sql = `DELETE FROM \`${this.service.escapeIdentifier(this.database)}\`.\`${this.service.escapeIdentifier(this.table)}\` WHERE \`${this.service.escapeIdentifier(this.idField)}\` = ?`;
+            let sql = `DELETE FROM \`${this.service.escapeIdentifier(this.schema)}\`.\`${this.service.escapeIdentifier(this.table)}\` WHERE \`${this.service.escapeIdentifier(this.idField)}\` = ?`;
             let args = [doc[this.idField]];
 
             return this.service.query(
@@ -704,9 +810,8 @@ class CrudService {
      * @param {*} criteria – Query criteria (just like _find)
      * @param {{conceal:boolean}} [options] – Additional options
      * @param {function(err:Error, res:*)} callback – Fired when completed
-     * @protected
      */
-    _bulkDeletePermanently(criteria, options, callback) {
+    bulkDeletePermanently(criteria, options, callback) {
 
         // Allow overloading of _bulkUpdate(obj, data, callback)
         if (typeof options === "function") {
@@ -719,7 +824,7 @@ class CrudService {
         // Normalize criteria
         criteria = criteria || {};
 
-        let sql = `DELETE FROM \`${this.service.escapeIdentifier(this.database)}\`.\`${this.service.escapeIdentifier(this.table)}\``;
+        let sql = `DELETE FROM \`${this.service.escapeIdentifier(this.schema)}\`.\`${this.service.escapeIdentifier(this.table)}\``;
         let args = [];
         let where = [];
 

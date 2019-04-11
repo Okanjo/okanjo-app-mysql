@@ -1,3 +1,5 @@
+"use strict";
+
 const should = require('should');
 
 describe('CrudService', () => {
@@ -14,7 +16,7 @@ describe('CrudService', () => {
     };
 
     const createDummyRecord = async (data) => {
-        const doc = await crud._create(data || {
+        const doc = await crud.create(data || {
             id: 'a',
             username: 'a',
             email: 'a@a.com',
@@ -102,7 +104,7 @@ describe('CrudService', () => {
 
         it('should accept various options', (done) => {
 
-            app.config.mysql.my_database.database = 'crud_test';
+            app.config.mysql.my_database.schema = 'crud_test';
             let crud = new CrudService(app, {
                 service: app.services.db,
                 table: 'user',
@@ -126,6 +128,202 @@ describe('CrudService', () => {
 
     });
 
+    describe('init', () => {
+
+        describe('basic usage', () => {
+
+            let crud;
+            let shouldNotExist = true;
+
+            before(async () => {
+                await app.services.db.query('DROP DATABASE IF EXISTS `unittest_rel_init`;');
+
+                class UnitTestService extends CrudService {
+
+                    constructor(app) {
+                        super(app, {
+                            service: app.services.db,
+                            schema: 'unittest_rel_init',
+                            table: 'things'
+                        });
+                    }
+
+                    async _createTable(session, schema) {
+                        const res = await session.sql(`
+                            CREATE TABLE ${this.schema}.${this.table} (
+                                \`id\` varchar(255) NOT NULL,
+                                \`name\` varchar(255) NOT NULL,
+                                \`status\` varchar(255) NOT NULL,
+                                \`created\` datetime NOT NULL,
+                                \`updated\` datetime NOT NULL,
+                                PRIMARY KEY (\`id\`)
+                            ) ENGINE=InnoDB DEFAULT CHARSET=utf8;
+                        `).execute();
+
+                        should(res).be.ok();
+                        shouldNotExist.should.be.exactly(true);
+                        shouldNotExist = false;
+                    }
+
+                }
+
+                crud = new UnitTestService(app);
+            });
+
+            it('it should create the database and table', (done) => {
+                crud.init()
+                    .catch(err => done(err))
+                    .then(() => {
+                        done();
+                    })
+                ;
+            });
+
+            it('it should have no problem if everything exists already', (done) => {
+                crud.init()
+                    .catch(err => done(err))
+                    .then(() => {
+                        done();
+                    })
+                ;
+            });
+
+        });
+
+        describe('should error if someone forgot to implement _createTable', () => {
+
+            let crud;
+
+            before(async () => {
+                await app.services.db.query('DROP DATABASE IF EXISTS `unittest_rel_init`;');
+
+                class UnitTestService extends CrudService {
+
+                    constructor(app) {
+                        super(app, {
+                            service: app.services.db,
+                            schema: 'unittest_rel_init',
+                            table: 'things'
+                        });
+                    }
+                }
+
+                crud = new UnitTestService(app);
+            });
+
+            it('it should error', (done) => {
+                crud.init()
+                    .then(() => {
+                        done(new Error('this should not have happened'))
+                    })
+                    .catch(err => {
+                        should(err.message).match(/_createTable/);
+                        done();
+                    })
+                ;
+            });
+
+        });
+
+        describe('power usage', () => {
+
+            let crud;
+            let firedCreateSchema = false;
+            let firedCreateTable = false;
+            let firedUpdateSchema = false;
+            let firedUpdateTable = false;
+
+            before(async () => {
+
+                await app.services.db.query('DROP DATABASE IF EXISTS `unittest_rel_init`;');
+
+                class UnitTestService extends CrudService {
+
+                    constructor(app) {
+                        super(app, {
+                            service: app.services.db,
+                            schema: 'unittest_rel_init',
+                            table: 'things'
+                        });
+                    }
+
+                    async _createSchema(session) {
+                        firedCreateSchema.should.be.exactly(false);
+                        firedCreateSchema = true;
+                        return await session.createSchema(this.schema);
+                    }
+
+                    async _updateSchema(session, schema) {
+                        firedUpdateSchema.should.be.exactly(false);
+                        firedUpdateSchema = true;
+                        return schema;
+                    }
+
+                    async _createTable(session, schema) {
+                        const res = await session.sql(`
+                            CREATE TABLE ${this.schema}.${this.table} (
+                                \`id\` varchar(255) NOT NULL,
+                                \`name\` varchar(255) NOT NULL,
+                                \`status\` varchar(255) NOT NULL,
+                                \`created\` datetime NOT NULL,
+                                \`updated\` datetime NOT NULL,
+                                PRIMARY KEY (\`id\`)
+                            ) ENGINE=InnoDB DEFAULT CHARSET=utf8;
+                        `).execute();
+
+                        should(res).be.ok();
+                        firedCreateTable.should.be.exactly(false);
+                        firedCreateTable = true;
+                    }
+
+                    async _updateTable(session, table) {
+                        firedUpdateTable.should.be.exactly(false);
+                        firedUpdateTable = true;
+                    }
+
+                }
+
+                crud = new UnitTestService(app);
+            });
+
+            it('it should create the database and table', (done) => {
+                firedCreateSchema = false;
+                firedUpdateSchema = false;
+                firedCreateTable = false;
+                firedUpdateTable = false;
+                crud.init()
+                    .then(() => {
+                        firedCreateSchema.should.be.exactly(true);
+                        firedUpdateSchema.should.be.exactly(false);
+                        firedCreateTable.should.be.exactly(true);
+                        firedUpdateTable.should.be.exactly(false);
+                        done();
+                    })
+                    .catch(err => done(err))
+                ;
+            });
+
+            it('it should have no problem if everything exists already', (done) => {
+                firedCreateSchema = false;
+                firedUpdateSchema = false;
+                firedCreateTable = false;
+                firedUpdateTable = false;
+                crud.init()
+                    .catch(err => done(err))
+                    .then(() => {
+                        firedCreateSchema.should.be.exactly(false);
+                        firedUpdateSchema.should.be.exactly(true);
+                        firedCreateTable.should.be.exactly(false);
+                        firedUpdateTable.should.be.exactly(true);
+                        done();
+                    })
+                ;
+            });
+
+        });
+
+    });
+
     const now = new Date('2017-11-30T17:17:34-06:00');
 
     describe('_create', () => {
@@ -135,7 +333,7 @@ describe('CrudService', () => {
         });
 
         it('should create a record', (done) => {
-            crud._create({
+            crud.create({
                 id: 'a',
                 username: 'a',
                 email: 'a@a.com',
@@ -163,7 +361,7 @@ describe('CrudService', () => {
 
         it('should fail to create with collision', (done) => {
 
-            crud._create({
+            crud.create({
                 id: 'a',
                 username: 'aa',
                 email: 'a@a.com',
@@ -190,7 +388,7 @@ describe('CrudService', () => {
         });
 
         it('should create a record on second attempt (pk collision)', (done) => {
-            crud._createWithRetry({
+            crud.createWithRetry({
                 email: 'b@b.com',
                 username: 'b',
                 first_name: null,
@@ -219,7 +417,7 @@ describe('CrudService', () => {
         });
 
         it('should create a record on second attempt (pk collision) w/ promise', async () => {
-            const doc = await crud._createWithRetry({
+            const doc = await crud.createWithRetry({
                 email: 'bb@bb.com',
                 username: 'bb',
                 first_name: null,
@@ -245,7 +443,7 @@ describe('CrudService', () => {
         });
 
         it('should create a record on second attempt (unique collision)', (done) => {
-            crud._createWithRetry({
+            crud.createWithRetry({
                 id: 'c',
                 email: 'c@c.com',
                 first_name: null,
@@ -274,7 +472,7 @@ describe('CrudService', () => {
         });
 
         it('should should give up when the closure is stubborn', (done) => {
-            crud._createWithRetry({
+            crud.createWithRetry({
                 id: 'c',
                 username: 'c',
                 email: 'c@c.com',
@@ -294,7 +492,7 @@ describe('CrudService', () => {
         });
 
         it('should should give up when the closure is stubborn w/ promise', (done) => {
-            crud._createWithRetry({
+            crud.createWithRetry({
                 id: 'a',
                 username: 'a',
                 email: 'a@a.com',
@@ -314,7 +512,7 @@ describe('CrudService', () => {
         });
 
         it('should handle error ', (done) => {
-            crud._createWithRetry({
+            crud.createWithRetry({
                 email: 'nope@nope.com',
                 username: 'nope',
                 first_name: null,
@@ -333,7 +531,7 @@ describe('CrudService', () => {
         });
 
         it('should handle error w/ promise', (done) => {
-            crud._createWithRetry({
+            crud.createWithRetry({
                 email: 'nope@nope.com',
                 username: 'nope',
                 first_name: null,
@@ -361,11 +559,11 @@ describe('CrudService', () => {
         });
 
         it('should callback null with no id present', (done) => {
-            crud._retrieve(undefined, (err, doc) => {
+            crud.retrieve(undefined, (err, doc) => {
                 should(err).be.exactly(null);
                 should(doc).be.exactly(null);
 
-                crud._retrieve(null, (err, doc) => {
+                crud.retrieve(null, (err, doc) => {
                     should(err).be.exactly(null);
                     should(doc).be.exactly(null);
 
@@ -377,7 +575,7 @@ describe('CrudService', () => {
 
         it('should not retrieve a bogus record', (done) => {
 
-            crud._retrieve('bogus', (err, doc) => {
+            crud.retrieve('bogus', (err, doc) => {
                 should(err).not.be.ok();
                 should(doc).be.exactly(null);
 
@@ -388,7 +586,7 @@ describe('CrudService', () => {
 
         it('should retrieve a record', (done) => {
 
-            crud._retrieve('a', (err, doc) => {
+            crud.retrieve('a', (err, doc) => {
                 should(err).not.be.ok();
                 should(doc).be.ok();
 
@@ -409,7 +607,7 @@ describe('CrudService', () => {
         });
 
         it('should not retrieve a dead resource', (done) => {
-            crud._create({
+            crud.create({
                 id: 'dead',
                 username: 'dead',
                 email: 'dead@dead.com',
@@ -432,7 +630,7 @@ describe('CrudService', () => {
                 doc.updated.should.be.equal(now);
 
                 // now try fetching it
-                crud._retrieve('dead', (err, doc) => {
+                crud.retrieve('dead', (err, doc) => {
                     should(err).not.be.ok();
                     should(doc).not.be.ok();
 
@@ -443,7 +641,7 @@ describe('CrudService', () => {
 
         it('should retrieve dead resource if concealment is disabled', (done) => {
             crud._concealDeadResources = false;
-            crud._retrieve('dead', (err, doc) => {
+            crud.retrieve('dead', (err, doc) => {
                 should(err).not.be.ok();
                 should(doc).be.ok();
 
@@ -501,7 +699,7 @@ describe('CrudService', () => {
         });
 
         it('should find all alive resources', (done) => {
-            crud._find({}, (err, docs) => {
+            crud.find({}, (err, docs) => {
                 should(err).not.be.ok();
                 should(docs).be.ok();
 
@@ -512,7 +710,7 @@ describe('CrudService', () => {
         });
 
         it('should find all alive resources (null options)', (done) => {
-            crud._find({}, null, (err, docs) => {
+            crud.find({}, null, (err, docs) => {
                 should(err).not.be.ok();
                 should(docs).be.ok();
 
@@ -524,7 +722,7 @@ describe('CrudService', () => {
 
         it('should find all resources if concealment is disabled', (done) => {
             crud._concealDeadResources = false;
-            crud._find({}, (err, docs) => {
+            crud.find({}, (err, docs) => {
                 crud._concealDeadResources = true;
                 should(err).not.be.ok();
                 should(docs).be.ok();
@@ -536,7 +734,7 @@ describe('CrudService', () => {
         });
 
         it('should find all resources if concealment explicitly disabled', (done) => {
-            crud._find({}, { conceal: false }, (err, docs) => {
+            crud.find({}, { conceal: false }, (err, docs) => {
                 should(err).not.be.ok();
                 should(docs).be.ok();
 
@@ -548,7 +746,7 @@ describe('CrudService', () => {
 
         it('should find all resources if concealment is disabled and criteria is empty', (done) => {
             crud._concealDeadResources = false;
-            crud._find(null, (err, docs) => {
+            crud.find(null, (err, docs) => {
                 crud._concealDeadResources = true;
                 should(err).not.be.ok();
                 should(docs).be.ok();
@@ -563,7 +761,7 @@ describe('CrudService', () => {
         });
 
         it('should combine status and concealment args', (done) => {
-            crud._find({
+            crud.find({
                 status: 'active'
             }, (err, docs) => {
                 should(err).not.be.ok();
@@ -576,7 +774,7 @@ describe('CrudService', () => {
         });
 
         it('should include concealment with an empty criteria set', (done) => {
-            crud._find(null, (err, docs) => {
+            crud.find(null, (err, docs) => {
                 should(err).not.be.ok();
                 should(docs).be.ok();
 
@@ -587,7 +785,7 @@ describe('CrudService', () => {
         });
 
         it('should return only the fields asked for if specified', (done) => {
-            crud._find({}, { fields: { username: 1 } }, (err, docs) => {
+            crud.find({}, { fields: { username: 1 } }, (err, docs) => {
                 should(err).not.be.ok();
                 should(docs).be.ok();
 
@@ -603,7 +801,7 @@ describe('CrudService', () => {
         });
 
         it('should return only the fields asked for if specified with no id', (done) => {
-            crud._find({}, { fields: { id: 0, username: 1 } }, (err, docs) => {
+            crud.find({}, { fields: { id: 0, username: 1 } }, (err, docs) => {
                 should(err).not.be.ok();
                 should(docs).be.ok();
 
@@ -619,7 +817,7 @@ describe('CrudService', () => {
         });
 
         it('should sort by a given field or fields', (done) => {
-            crud._find({}, { sort: { id: -1, username: 1 } }, (err, docs) => {
+            crud.find({}, { sort: { id: -1, username: 1 } }, (err, docs) => {
                 should(err).not.be.ok();
                 should(docs).be.ok();
 
@@ -639,7 +837,7 @@ describe('CrudService', () => {
         });
 
         it('should handle pagination', (done) => {
-            crud._find({}, { skip: 0, take: 2 }, (err, docs) => {
+            crud.find({}, { skip: 0, take: 2 }, (err, docs) => {
                 should(err).not.be.ok();
                 should(docs).be.ok();
 
@@ -653,7 +851,7 @@ describe('CrudService', () => {
                     }
                 });
 
-                crud._find({}, { skip: 2, take: 2 }, (err, docs) => {
+                crud.find({}, { skip: 2, take: 2 }, (err, docs) => {
                     should(err).not.be.ok();
                     should(docs).be.ok();
 
@@ -668,7 +866,7 @@ describe('CrudService', () => {
         });
 
         it('should handle offset, no limit', (done) => {
-            crud._find({}, { skip: 1 }, (err, docs) => {
+            crud.find({}, { skip: 1 }, (err, docs) => {
                 should(err).not.be.ok();
                 should(docs).be.ok();
 
@@ -692,7 +890,7 @@ describe('CrudService', () => {
         });
 
         it('should handle limit, no offset', (done) => {
-            crud._find({}, { take: 2 }, (err, docs) => {
+            crud.find({}, { take: 2 }, (err, docs) => {
                 should(err).not.be.ok();
                 should(docs).be.ok();
 
@@ -716,7 +914,7 @@ describe('CrudService', () => {
         });
 
         it('should handle special operator: array (in)', (done) => {
-            crud._find({ id: ['a','b'] }, (err, docs) => {
+            crud.find({ id: ['a','b'] }, (err, docs) => {
                 should(err).not.be.ok();
                 should(docs).be.ok();
 
@@ -728,7 +926,7 @@ describe('CrudService', () => {
         });
 
         it('should handle special operator: $ne array (not in)', (done) => {
-            crud._find({ id: { $ne: ['a','b'] } }, (err, docs) => {
+            crud.find({ id: { $ne: ['a','b'] } }, (err, docs) => {
                 should(err).not.be.ok();
                 should(docs).be.ok();
 
@@ -740,7 +938,7 @@ describe('CrudService', () => {
         });
 
         it('should handle special operator: $gt', (done) => {
-            crud._find({ created: { $gt: new Date('2017-11-29T17:17:34-06:00')} }, (err, docs) => {
+            crud.find({ created: { $gt: new Date('2017-11-29T17:17:34-06:00')} }, (err, docs) => {
                 should(err).not.be.ok();
                 should(docs).be.ok();
 
@@ -752,7 +950,7 @@ describe('CrudService', () => {
         });
 
         it('should handle special operator: $gt', (done) => {
-            crud._find({ created: { $gte: now } }, (err, docs) => {
+            crud.find({ created: { $gte: now } }, (err, docs) => {
                 should(err).not.be.ok();
                 should(docs).be.ok();
 
@@ -764,7 +962,7 @@ describe('CrudService', () => {
         });
 
         it('should handle special operator: $lt', (done) => {
-            crud._find({ created: { $lt: new Date('2017-12-01T17:17:34-06:00')} }, (err, docs) => {
+            crud.find({ created: { $lt: new Date('2017-12-01T17:17:34-06:00')} }, (err, docs) => {
                 should(err).not.be.ok();
                 should(docs).be.ok();
 
@@ -776,7 +974,7 @@ describe('CrudService', () => {
         });
 
         it('should handle special operator: $lt', (done) => {
-            crud._find({ created: { $lte: now } }, (err, docs) => {
+            crud.find({ created: { $lte: now } }, (err, docs) => {
                 should(err).not.be.ok();
                 should(docs).be.ok();
 
@@ -788,7 +986,7 @@ describe('CrudService', () => {
         });
 
         it('should handle special operator: $ne', (done) => {
-            crud._find({ id: { $ne: 'a' } }, (err, docs) => {
+            crud.find({ id: { $ne: 'a' } }, (err, docs) => {
                 should(err).not.be.ok();
                 should(docs).be.ok();
 
@@ -800,7 +998,7 @@ describe('CrudService', () => {
         });
 
         it('should handle regular operator: =', (done) => {
-            crud._find({ id: 'a' }, (err, docs) => {
+            crud.find({ id: 'a' }, (err, docs) => {
                 should(err).not.be.ok();
                 should(docs).be.ok();
 
@@ -812,7 +1010,7 @@ describe('CrudService', () => {
         });
 
         it('should warn when you are crazy', (done) => {
-            crud._find({ created: { $crazy: 'yes' } }, (err, docs) => {
+            crud.find({ created: { $crazy: 'yes' } }, (err, docs) => {
                 should(err).not.be.ok();
                 should(docs).be.ok();
 
@@ -863,7 +1061,7 @@ describe('CrudService', () => {
         });
 
         it('should get a count', (done) => {
-            crud._count({}, (err, count) => {
+            crud.count({}, (err, count) => {
                 should(err).not.be.ok();
                 should(count).be.ok();
 
@@ -874,7 +1072,7 @@ describe('CrudService', () => {
         });
 
         it('should get a count with no options', (done) => {
-            crud._count({}, null, (err, count) => {
+            crud.count({}, null, (err, count) => {
                 should(err).not.be.ok();
                 should(count).be.ok();
 
@@ -885,7 +1083,7 @@ describe('CrudService', () => {
         });
 
         it('should get a count with options', (done) => {
-            crud._count({ }, { conceal: false }, (err, count) => {
+            crud.count({ }, { conceal: false }, (err, count) => {
                 should(err).not.be.ok();
                 should(count).be.ok();
 
@@ -935,14 +1133,14 @@ describe('CrudService', () => {
         });
 
         it('should update a doc', (done) => {
-            crud._retrieve('a', (err, doc) => {
+            crud.retrieve('a', (err, doc) => {
                 should(err).not.be.ok();
                 should(doc).be.ok();
 
                 doc.first_name = 'unit';
                 doc.last_name = 'test';
 
-                crud._update(doc, (err, doc2) => {
+                crud.update(doc, (err, doc2) => {
                     should(err).not.be.ok();
                     should(doc2).be.ok();
 
@@ -953,7 +1151,7 @@ describe('CrudService', () => {
                     doc2.updated.toISOString().should.not.be.exactly(now.toISOString());
 
                     // Fetch a clean copy
-                    crud._retrieve('a', (err, doc) => {
+                    crud.retrieve('a', (err, doc) => {
                         should(err).not.be.ok();
                         should(doc).be.ok();
 
@@ -967,13 +1165,13 @@ describe('CrudService', () => {
         });
 
         it('should apply modifiable fields', (done) => {
-            crud._retrieve('a', (err, doc) => {
+            crud.retrieve('a', (err, doc) => {
                 should(err).not.be.ok();
                 should(doc).be.ok();
 
                 crud._modifiableKeys = ['first_name', 'last_name'];
 
-                crud._update(doc, {first_name: 'unit2', last_name: 'test2'}, (err, doc2) => {
+                crud.update(doc, {first_name: 'unit2', last_name: 'test2'}, (err, doc2) => {
                     should(err).not.be.ok();
                     should(doc2).be.ok();
 
@@ -986,12 +1184,12 @@ describe('CrudService', () => {
         });
 
         it('should handle disabling updatedField', (done) => {
-            crud._retrieve('b', (err, doc) => {
+            crud.retrieve('b', (err, doc) => {
                 should(err).not.be.ok();
                 should(doc).be.ok();
 
                 crud.updatedField = null;
-                crud._update(doc, (err, doc2) => {
+                crud.update(doc, (err, doc2) => {
                     should(err).not.be.ok();
                     should(doc2).be.ok();
                     crud.updatedField = 'updated';
@@ -1003,7 +1201,7 @@ describe('CrudService', () => {
                     doc2.updated.toISOString().should.be.exactly(now.toISOString());
 
                     // Fetch a clean copy
-                    crud._retrieve('b', (err, doc) => {
+                    crud.retrieve('b', (err, doc) => {
                         should(err).not.be.ok();
                         should(doc).be.ok();
 
@@ -1017,7 +1215,7 @@ describe('CrudService', () => {
 
         it('should error if you do not identify your object', (done) => {
             const doc = { username: 'bogus' };
-            crud._update(doc, (err, doc) => {
+            crud.update(doc, (err, doc) => {
                 should(err).be.ok();
                 should(doc).be.exactly(null);
 
@@ -1026,13 +1224,13 @@ describe('CrudService', () => {
         });
 
         it('should error if you botch a data type', (done) => {
-            crud._retrieve('a', null, (err, doc) => {
+            crud.retrieve('a', null, (err, doc) => {
                 should(err).not.be.ok();
                 should(doc).be.ok();
 
                 doc.created = 'KABOOM';
 
-                crud._update(doc, {}, null, (err, doc2) => {
+                crud.update(doc, {}, null, (err, doc2) => {
                     should(err).be.ok();
                     should(doc2).not.be.ok();
 
@@ -1083,7 +1281,7 @@ describe('CrudService', () => {
         });
 
         it('should bulk update matched records', (done) => {
-            crud._bulkUpdate({ id: ['a','b'] }, { first_name: 'bulk' }, (err, res) => {
+            crud.bulkUpdate({ id: ['a','b'] }, { first_name: 'bulk' }, (err, res) => {
                 should(err).not.be.ok();
                 should(res).be.ok();
 
@@ -1096,7 +1294,7 @@ describe('CrudService', () => {
 
         it('should not set updated when configured to do so', (done) => {
             crud.updatedField = null;
-            crud._bulkUpdate({ id: ['a','b'] }, { first_name: 'bulk' }, null, (err, res) => {
+            crud.bulkUpdate({ id: ['a','b'] }, { first_name: 'bulk' }, null, (err, res) => {
                 crud.updatedField = 'updated';
                 should(err).not.be.ok();
                 should(res).be.ok();
@@ -1108,7 +1306,7 @@ describe('CrudService', () => {
         });
 
         it('should update all rows if no criteria set', (done) => {
-            crud._bulkUpdate({ }, { first_name: null }, (err, res) => {
+            crud.bulkUpdate({ }, { first_name: null }, (err, res) => {
                 should(err).not.be.ok();
                 should(res).be.ok();
 
@@ -1119,7 +1317,7 @@ describe('CrudService', () => {
         });
 
         it('should update all rows if no criteria set, without concealment', (done) => {
-            crud._bulkUpdate({ }, { first_name: 'bulkers' }, { conceal: false }, (err, res) => {
+            crud.bulkUpdate({ }, { first_name: 'bulkers' }, { conceal: false }, (err, res) => {
                 should(err).not.be.ok();
                 should(res).be.ok();
 
@@ -1130,7 +1328,7 @@ describe('CrudService', () => {
         });
 
         it('should update all rows if falsey criteria set, without concealment', (done) => {
-            crud._bulkUpdate(null, { first_name: 'bulkers' }, { conceal: false }, (err, res) => {
+            crud.bulkUpdate(null, { first_name: 'bulkers' }, { conceal: false }, (err, res) => {
                 should(err).not.be.ok();
                 should(res).be.ok();
 
@@ -1142,7 +1340,7 @@ describe('CrudService', () => {
         });
 
         it('should update all rows and merge status criteria, with concealment', (done) => {
-            crud._bulkUpdate({ status: 'active' }, { first_name: 'merge' }, { conceal: true }, (err, res) => {
+            crud.bulkUpdate({ status: 'active' }, { first_name: 'merge' }, { conceal: true }, (err, res) => {
                 should(err).not.be.ok();
                 should(res).be.ok();
 
@@ -1154,7 +1352,7 @@ describe('CrudService', () => {
         });
 
         it('should handle errors', (done) => {
-            crud._bulkUpdate({ id: ['a','b'] }, { created: 'KABOOM' }, (err, res) => {
+            crud.bulkUpdate({ id: ['a','b'] }, { created: 'KABOOM' }, (err, res) => {
                 should(err).be.ok();
                 should(res).not.be.ok();
 
@@ -1184,14 +1382,14 @@ describe('CrudService', () => {
 
         it('should fake delete a record', (done) => {
             const doc = { id: 'c' };
-            crud._delete(doc, (err, doc2) => {
+            crud.delete(doc, (err, doc2) => {
                 should(err).not.be.ok();
                 should(doc).be.ok();
 
                 doc2.should.be.exactly(doc);
                 doc2.status.should.be.exactly('dead');
 
-                crud._retrieve('c', (err, doc) => {
+                crud.retrieve('c', (err, doc) => {
                     should(err).not.be.ok();
                     should(doc).be.exactly(null);
 
@@ -1240,7 +1438,7 @@ describe('CrudService', () => {
         });
 
         it('should bulk delete with no options', (done) => {
-            crud._bulkDelete({ status: 'active' }, (err, res) => {
+            crud.bulkDelete({ status: 'active' }, (err, res) => {
                 should(err).not.be.ok();
                 should(res).be.ok();
 
@@ -1251,7 +1449,7 @@ describe('CrudService', () => {
         });
 
         it('should bulk delete with options', (done) => {
-            crud._bulkDelete({ id: 'c' }, { conceal: false }, (err, res) => {
+            crud.bulkDelete({ id: 'c' }, { conceal: false }, (err, res) => {
                 should(err).not.be.ok();
                 should(res).be.ok();
 
@@ -1281,13 +1479,13 @@ describe('CrudService', () => {
 
         it('should really delete a record', (done) => {
             const doc = { id: 'b' };
-            crud._deletePermanently(doc, (err, doc2) => {
+            crud.deletePermanently(doc, (err, doc2) => {
                 should(err).not.be.ok();
                 should(doc2).be.ok();
 
                 doc2.should.be.exactly(doc);
 
-                crud._find({}, { conceal: false }, (err, docs) => {
+                crud.find({}, { conceal: false }, (err, docs) => {
                     should(err).not.be.ok();
                     should(docs).be.ok();
 
@@ -1300,7 +1498,7 @@ describe('CrudService', () => {
 
         it('should error when no id given', (done) => {
             const doc = {};
-            crud._deletePermanently(doc, null, (err, doc) => {
+            crud.deletePermanently(doc, null, (err, doc) => {
                 should(err).be.ok();
                 should(doc).be.exactly(doc);
 
@@ -1310,7 +1508,7 @@ describe('CrudService', () => {
 
         it('trying to delete something that was already deleted should warn', (done) => {
             const doc = { id: 'b' };
-            crud._deletePermanently(doc, (err, doc2) => {
+            crud.deletePermanently(doc, (err, doc2) => {
                 should(err).not.be.ok();
                 should(doc2).be.ok();
 
@@ -1322,7 +1520,7 @@ describe('CrudService', () => {
 
         it('should handle errors', (done) => {
             const doc = { id: {} };
-            crud._deletePermanently(doc, (err, doc2) => {
+            crud.deletePermanently(doc, (err, doc2) => {
                 should(err).be.ok();
                 should(doc2).not.be.ok();
 
@@ -1372,7 +1570,7 @@ describe('CrudService', () => {
         });
 
         it('should bulk delete everything (no criteria, no opts)', (done) => {
-            crud._bulkDeletePermanently(null, (err, res) => {
+            crud.bulkDeletePermanently(null, (err, res) => {
                 should(err).not.be.ok();
                 should(res).be.ok();
 
@@ -1383,7 +1581,7 @@ describe('CrudService', () => {
         });
 
         it('should bulk delete no conceal', (done) => {
-            crud._bulkDeletePermanently({ id: 'd' }, { conceal: false }, (err, res) => {
+            crud.bulkDeletePermanently({ id: 'd' }, { conceal: false }, (err, res) => {
                 should(err).not.be.ok();
                 should(res).be.ok();
 
@@ -1394,7 +1592,7 @@ describe('CrudService', () => {
         });
 
         it('should bulk delete conceal with status', (done) => {
-            crud._bulkDeletePermanently({ status: 'dead' }, { conceal: true }, (err, res) => {
+            crud.bulkDeletePermanently({ status: 'dead' }, { conceal: true }, (err, res) => {
                 should(err).not.be.ok();
                 should(res).be.ok();
 
@@ -1405,7 +1603,7 @@ describe('CrudService', () => {
         });
 
         it('should bulk delete no conceal with falsey criteria', (done) => {
-            crud._bulkDeletePermanently(null, { conceal: false }, (err, res) => {
+            crud.bulkDeletePermanently(null, { conceal: false }, (err, res) => {
                 should(err).not.be.ok();
                 should(res).be.ok();
 
@@ -1416,7 +1614,7 @@ describe('CrudService', () => {
         });
 
         it('should handle errors', (done) => {
-            crud._bulkDeletePermanently({ id: -1 }, null, (err, res) => {
+            crud.bulkDeletePermanently({ id: -1 }, null, (err, res) => {
                 should(err).be.ok();
                 should(res).not.be.ok();
 
@@ -1460,7 +1658,7 @@ describe('CrudService', () => {
         });
 
         it('_create in transaction', (done) => {
-            crud._create({
+            crud.create({
                 id: 'txn',
                 username: 'txn',
                 email: 'txn@txn.com',
@@ -1478,7 +1676,7 @@ describe('CrudService', () => {
         });
 
         it('_createWithRetry in transaction', (done) => {
-            crud._createWithRetry({
+            crud.createWithRetry({
                 id: 'txn2',
                 username: 'txn2',
                 email: 'txn2@txn2.com',
@@ -1500,7 +1698,7 @@ describe('CrudService', () => {
         });
 
         it('_retrieve in transaction', (done) => {
-            crud._retrieve('txn', { session }, (err, doc) => {
+            crud.retrieve('txn', { session }, (err, doc) => {
                 should(err).not.be.ok();
                 should(doc).be.ok();
 
@@ -1509,7 +1707,7 @@ describe('CrudService', () => {
         });
 
         it('_find in transaction', (done) => {
-            crud._find({ id: 'txn2' }, { session }, (err, docs) => {
+            crud.find({ id: 'txn2' }, { session }, (err, docs) => {
                 should(err).not.be.ok();
                 should(docs).be.ok();
                 docs.length.should.be.exactly(1);
@@ -1519,7 +1717,7 @@ describe('CrudService', () => {
         });
 
         it('_count in transaction', (done) => {
-            crud._count({ id: 'txn2' }, { session }, (err, count) => {
+            crud.count({ id: 'txn2' }, { session }, (err, count) => {
                 should(err).not.be.ok();
                 should(count).be.ok();
                 count.should.be.exactly(1);
@@ -1529,7 +1727,7 @@ describe('CrudService', () => {
         });
 
         it('_update in transaction', (done) => {
-            crud._update({ id: 'txn', first_name: 'changed' }, {}, { session }, (err, doc) => {
+            crud.update({ id: 'txn', first_name: 'changed' }, {}, { session }, (err, doc) => {
                 should(err).not.be.ok();
                 should(doc).be.ok();
 
@@ -1538,7 +1736,7 @@ describe('CrudService', () => {
         });
 
         it('_bulkUpdate in transaction', (done) => {
-            crud._bulkUpdate({ id: 'txn' }, { last_name: 'bulk' }, { session }, (err, res) => {
+            crud.bulkUpdate({ id: 'txn' }, { last_name: 'bulk' }, { session }, (err, res) => {
                 should(err).not.be.ok();
                 should(res).be.ok();
 
@@ -1549,7 +1747,7 @@ describe('CrudService', () => {
         });
 
         it('_delete in transaction', (done) => {
-            crud._delete({ id: 'txn2' }, { session }, (err, doc) => {
+            crud.delete({ id: 'txn2' }, { session }, (err, doc) => {
                 should(err).not.be.ok();
                 should(doc).be.ok();
 
@@ -1558,7 +1756,7 @@ describe('CrudService', () => {
         });
 
         it('_bulkDelete in transaction', (done) => {
-            crud._bulkDelete({ id: 'txn2' }, { session }, (err, res) => {
+            crud.bulkDelete({ id: 'txn2' }, { session }, (err, res) => {
                 should(err).not.be.ok();
 
                 res.result.getAffectedRowsCount().should.be.exactly(0);
@@ -1568,7 +1766,7 @@ describe('CrudService', () => {
         });
 
         it('_deletePermanently in transaction', (done) => {
-            crud._deletePermanently({ id: 'txn2' }, { session }, (err, doc) => {
+            crud.deletePermanently({ id: 'txn2' }, { session }, (err, doc) => {
                 should(err).not.be.ok();
                 should(doc).be.ok();
 
@@ -1577,7 +1775,7 @@ describe('CrudService', () => {
         });
 
         it('_bulkDeletePermanently in transaction', (done) => {
-            crud._bulkDeletePermanently({ id: 'txn' }, { session }, (err, res) => {
+            crud.bulkDeletePermanently({ id: 'txn' }, { session }, (err, res) => {
                 should(err).not.be.ok();
 
                 res.result.getAffectedRowsCount().should.be.exactly(1);
