@@ -127,9 +127,9 @@ describe('CrudService', () => {
 
         it('should accept various options', (done) => {
 
+            app.services.db.config.session.schema = schemaName;
             let crud = new CollectionCrudService(app, {
                 service: app.services.db,
-                database: schemaName,
                 table: collectionName,
                 createRetryCount: 2,
                 modifiableKeys: ['hi'],
@@ -137,6 +137,7 @@ describe('CrudService', () => {
                 concealDeadResources: false,
                 generateIds: true
             });
+            delete app.services.db.config.session.schema;
 
             // noinspection JSAccessibilityCheck
             crud._createRetryCount.should.be.exactly(2);
@@ -150,6 +151,14 @@ describe('CrudService', () => {
             done();
         });
 
+        it('should throw on missing options', () => {
+
+            (() => new CollectionCrudService(app)).should.throw(/options/);
+            (() => new CollectionCrudService(app, {})).should.throw(/service/);
+            (() => new CollectionCrudService(app, {service: app.services.db})).should.throw(/schema/);
+            (() => new CollectionCrudService(app, {service: app.services.db, schema: schemaName })).should.throw(/collection/);
+
+        });
     });
 
     describe('getSchema', () => {

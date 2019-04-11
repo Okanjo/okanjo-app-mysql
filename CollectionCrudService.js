@@ -16,10 +16,27 @@ class CollectionCrudService {
     constructor(app, options) {
         this.app = app;
 
+        if (!options) {
+            throw new Error('CollectionCrudService: `options` are required.');
+        }
+
         // Required settings
         this.service = options.service;
-        this.schema = options.schema || options.database;
+
+        if (!this.service) {
+            throw new Error('CollectionCrudService: `service` must be defined on initialization');
+        }
+
+        this.schema = options.schema || options.database || this.service.config.session.schema;
         this.collection = options.collection || options.table;
+
+        if (!this.schema) {
+            throw new Error('CollectionCrudService: `schema` must be defined on initialization');
+        }
+
+        if (!this.collection) {
+            throw new Error('CollectionCrudService: `collection` must be defined on initialization');
+        }
 
         // Optional settings
         this.idField = options.idField || '_id';

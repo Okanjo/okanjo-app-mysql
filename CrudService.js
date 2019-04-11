@@ -13,16 +13,29 @@ class CrudService {
      * @param options
      */
     constructor(app, options) {
+        this.app = app;
 
-        Object.defineProperty(this, 'app', {
-            enumerable: false,
-            value: app
-        });
+        if (!options) {
+            throw new Error('CrudService: `options` are required.');
+        }
 
         // Required settings
         this.service = options.service;
-        this.schema = options.schema || options.database || this.service.config.schema; // default to the service connection database param, if given
+
+        if (!this.service) {
+            throw new Error('CrudService: `service` must be defined on initialization');
+        }
+
+        this.schema = options.schema || options.database || this.service.config.session.schema; // default to the service connection database param, if given
         this.table = options.table;
+
+        if (!this.schema) {
+            throw new Error('CrudService: `schema` must be defined on initialization');
+        }
+
+        if (!this.table) {
+            throw new Error('CrudService: `table` must be defined on initialization');
+        }
 
         // Optional settings
         this.idField = options.idField || 'id';

@@ -104,7 +104,7 @@ describe('CrudService', () => {
 
         it('should accept various options', (done) => {
 
-            app.config.mysql.my_database.schema = 'crud_test';
+            app.config.mysql.my_database.session.schema = 'crud_test';
             let crud = new CrudService(app, {
                 service: app.services.db,
                 table: 'user',
@@ -113,6 +113,7 @@ describe('CrudService', () => {
                 deletedStatus: 'kaput',
                 concealDeadResources: false
             });
+            delete app.config.mysql.my_database.session.schema;
 
             // noinspection JSAccessibilityCheck
             crud._createRetryCount.should.be.exactly(2);
@@ -124,6 +125,16 @@ describe('CrudService', () => {
             crud._concealDeadResources.should.be.exactly(false);
 
             done();
+        });
+
+        it('should throw when missing options ', () => {
+
+            (() => new CrudService(app)).should.throw(/options/);
+
+            (() => new CrudService(app, {})).should.throw(/service/);
+            (() => new CrudService(app, { service: app.services.db })).should.throw(/schema/);
+            (() => new CrudService(app, { service: app.services.db, schema: 'crud_test' })).should.throw(/table/);
+
         });
 
     });

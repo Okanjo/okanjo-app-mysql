@@ -169,7 +169,7 @@ Creates a new instance. Ideally, you would extend it and call it via `super(app,
 * `app` – The OkanjoApp instance to bind to
 * `options` – Service configuration options
   * `options.service` – (Required) The MySQLService instance managing the connection pool
-  * `options.schema` – (Optionalish) The string name of the database the table. Defaults to `service.config.database` if not defined.
+  * `options.schema` – (Optionalish) The string name of the database the table. Defaults to `service.config.session.schema` if not defined.
   * `options.table` – (Required) The string name of the table this service is managing
   * `options.idField` – (Optional) The field that is expected to be unique, like a single-column primary key. Defaults to `id`.
   * `options.statusField` – (Optional) The field that is used for row status, such as `dead` statuses. Defaults to `status`.
@@ -395,7 +395,7 @@ Creates a new instance. Ideally, you would extend it and call it via `super(app,
 * `app` – The OkanjoApp instance to bind to
 * `options` – Service configuration options
   * `options.service` – (Required) The MySQLService instance managing the connection pool
-  * `options.schema` – (Optionalish) The string name of the database the table. Defaults to `service.config.database` if not defined.
+  * `options.schema` – (Optionalish) The string name of the database the table. Defaults to `service.config.session.schema` if not defined.
   * `options.collection` – (Required) The string name of the collection this service is accessing
   * `options.idField` – (Optional) The field that is expected to be unique, like a single-column primary key. Defaults to `id`.
   * `options.statusField` – (Optional) The field that is used for doc status, such as `dead` statuses. Defaults to `status`.
