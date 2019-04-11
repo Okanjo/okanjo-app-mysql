@@ -101,7 +101,7 @@ class CrudService {
      * @returns {Promise<void>}
      * @protected
      */
-    async _createTable(session, schema) {
+    async _createTable(session, schema) { // eslint-disable-line no-unused-vars
         const err = new Error('CrudService: Method _createTable must be overridden to properly create your table');
         await this.app.report(err, { schema: this.schema, table: this.table });
         throw err;
@@ -126,7 +126,7 @@ class CrudService {
      * @returns {Promise<void>}
      * @protected
      */
-    async _updateTable(session, table) {
+    async _updateTable(session, table) { // eslint-disable-line no-unused-vars
         // Could add/remove columns, indices, FK's, you name it...
     }
 

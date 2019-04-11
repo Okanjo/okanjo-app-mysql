@@ -218,7 +218,7 @@ class CollectionCrudService {
      * @returns {Promise<void>}
      * @protected
      */
-    async _updateCollection(session, collection) {
+    async _updateCollection(session, collection) { // eslint-disable-line no-unused-vars
         // Could add/remove indices here, etc
     }
 

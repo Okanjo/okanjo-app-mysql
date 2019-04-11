@@ -148,7 +148,7 @@ describe('CrudService', () => {
                         });
                     }
 
-                    async _createTable(session, schema) {
+                    async _createTable(session/*, schema*/) {
                         const res = await session.sql(`
                             CREATE TABLE ${this.schema}.${this.table} (
                                 \`id\` varchar(255) NOT NULL,
@@ -259,7 +259,7 @@ describe('CrudService', () => {
                         return schema;
                     }
 
-                    async _createTable(session, schema) {
+                    async _createTable(session/*, schema*/) {
                         const res = await session.sql(`
                             CREATE TABLE ${this.schema}.${this.table} (
                                 \`id\` varchar(255) NOT NULL,
@@ -276,7 +276,7 @@ describe('CrudService', () => {
                         firedCreateTable = true;
                     }
 
-                    async _updateTable(session, table) {
+                    async _updateTable(/*session, table*/) {
                         firedUpdateTable.should.be.exactly(false);
                         firedUpdateTable = true;
                     }
