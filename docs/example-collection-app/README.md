@@ -4,7 +4,7 @@ This is an example for how you can use the CollectionCrudService in an app.
 
 Run like so, replacing your mysql info for your test server:
 ```sh
-MYSQL_HOST=localhost MYSQL_PORT=33060 MYSQL_USER=root MYSQL_PASS=unittest node docs/example-app/index.js
+MYSQL_HOST=localhost MYSQL_PORT=33060 MYSQL_USER=root MYSQL_PASS=unittest node docs/example-collection-app/index.js
 ```
 
 Replace the values for your test environment.

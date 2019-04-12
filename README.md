@@ -2,7 +2,7 @@
 
 [![Build Status](https://travis-ci.org/Okanjo/okanjo-app-mysql.svg?branch=master)](https://travis-ci.org/Okanjo/okanjo-app-mysql) [![Coverage Status](https://coveralls.io/repos/github/Okanjo/okanjo-app-mysql/badge.svg?branch=master)](https://coveralls.io/github/Okanjo/okanjo-app-mysql?branch=master)
 
-Service for interfacing with MySQL for the Okanjo App ecosystem.
+Service for interfacing with MySQL or MariaDB for the Okanjo App ecosystem.
 
 ## Installing
 
@@ -52,11 +52,26 @@ Runnable examples can be be found in [docs/](https://github.com/okanjo/okanjo-ap
 
  * [example-app](https://github.com/okanjo/okanjo-app-mysql/tree/master/docs/example-app) – Demonstrates direct SQL query usage 
  * [example-relational-app](https://github.com/okanjo/okanjo-app-mysql/tree/master/docs/example-relational-app) – Demonstrates using CrudService in an app
+ * [example-mariadb-app](https://github.com/okanjo/okanjo-app-mysql/tree/master/docs/example-mariadb-app) – Demonstrates using MariaDBCrudService in an app
  * [example-collection-app](https://github.com/okanjo/okanjo-app-mysql/tree/master/docs/example-collection-app) – Demonstrates using CollectionCrudService in an app
+
+
+# Classes
+
+ * [MySQLService](#mysqlservice) – MySQL interface service, uses the Oracle mysql connector.
+ * [MariaDBService](#mariadbservice) – MariaDB/MySQL interface service, uses the MariaDB connector.
+ * [CrudService](#crudservice) – CRUD base class for MySQL relational tables. Depends on MySQLService.
+ * [MariaDBCrudService](#mariadbcrudservice) – CRUD base class for MariaDB/MySQL relational tables. Depends on MariaDBService.
+ * [CollectionCrudService](#collectioncrudservice) – CRUD base class for MySQL document collections. Depends on MySQLService.
+
 
 # MySQLService
 
-MySQL management class. Must be instantiated to be used.
+MySQL management class. Must be instantiated to be used. 
+
+```js
+const MySQLService = require('okanjo-app-mysql');
+```
 
 ## Properties
 * `service.app` – (read-only) The OkanjoApp instance provided when constructed
@@ -119,7 +134,7 @@ Executes a query on the connection pool. See [mysqljs/mysql](https://github.com/
     * `results` – The query Result object.
     * `cols` – The metadata Column objects.
 * `options` – (optional) Query options
-  * `options.session` – Session to exectute the query in. If none given, a new Session will be pulled from the pool.
+  * `options.session` – Session to execute the query in. If none given, a new Session will be pulled from the pool.
   * `options.suppress` – An error code to suppress
 * Returns `Promise<rows>`
 
@@ -128,6 +143,64 @@ Gets a dedicated session from the pool. You must release it back to the pool whe
 * Returns `Promise<Session>`
   
 > Note: You must call `session.close();` when you have finished using the session to return it back to the pool.
+
+## Events
+
+This class does not emit events.
+
+
+# MariaDBService
+
+MariaDB management class. Must be instantiated to be used.
+
+```js
+const MariaDBService = require('okanjo-app-mysql/MariaDBService');
+```
+
+## Properties
+* `service.app` – (read-only) The OkanjoApp instance provided when constructed
+* `service.config` – (read-only) The MariaDB service configuration provided when constructed
+* `service.pool` – (read-only) The underlying [MariaDB/mariadb-connector-nodejs](https://github.com/MariaDB/mariadb-connector-nodejs) connection pool 
+
+## Methods
+
+### `new MySQLService(app, [config])`
+
+Creates a new mysql service instance.
+
+* `app` – The OkanjoApp instance to bind to
+* `config` – (Required) The mysql service configuration object.
+  * `config.host` – Server hostname or ip address
+  * `config.port` – Server port
+  * `config.user` – Username to login as 
+  * `config.password` – Password for the user 
+  * `config.datbase` – (optional) Sets the context database if given.
+  * See [connection options](https://mariadb.com/kb/en/library/connector-nodejs-promise-api/#connection-options) for additional connection/pool options.
+
+### `async service.connect()`
+Initializes the connection pool client. Automatically called when app starts.
+
+### `async service.close()`
+Closes down the connection pool client.
+
+### `service.query(sql, args, [callback], [options])`
+Executes a query on the connection pool. See [mysqljs/mysql](https://github.com/mysqljs/mysql#performing-queries) for more query options.
+* `sql` – SQL string to execute
+* `args` – Query arguments for prepared statements.
+* `callback(err, rows)`– (optional) Function to fire when query completes
+  * `err` – Error if applicable
+  * `rows` – Array of records or [query result](https://mariadb.com/kb/en/library/connector-nodejs-promise-api/#poolquerysql-values-promise).
+    * `meta` – The metadata column data. (non-enumerable, but exists!)
+* `options` – (optional) Query options
+  * `options.connection` – to execute the query in. If none given, a new Connection will be pulled from the pool.
+  * `options.suppress` – An error code to suppress
+* Returns `Promise<rows>`
+
+### `service.getConnection()`
+Gets a dedicated connection from the pool. You must release it back to the pool when you are finished with it.
+* Returns `Promise<Connection>`
+  
+> Note: You must call `connection.end();` when you have finished using the session to return it back to the pool.
 
 ## Events
 
@@ -148,6 +221,10 @@ Base class for building services based on relational MySQL tables. The idea of u
    * The `find`, `retrieve`, `bulkUpdate`, `bulkDelete` and `bulkPermanentlyDelete` helpers automatically deal with dead rows, pretending like they were really deleted.
 
 Note: you should extend this class to make it useful!
+
+```js
+const CrudService = require('okanjo-app-mysql/CrudService');
+```
 
 ## Properties
 * `service.app` – (read-only) The OkanjoApp instance provided when constructed
@@ -360,6 +437,229 @@ Permanently deletes all rows matching the given criteria.
 This class does not emit events.
 
 
+# MariaDBCrudService
+
+Base class for building services based on relational MariaDB/MySQL tables. The idea of using MariaDBCrudService is to:
+ * Stop duplicating logic across every service you have to write (CRUDL)
+ * Automatically handle and report errors on common operations so you don't need to in the business logic
+ * Provide base functions that can be used in the service.
+ * Provide hooks to create non-existent schemas and tables.
+ * Automatic `Date` handling. Objects with `Date` values are encoded during inserts/updates, and decoded when retrieved. 
+ * Conceal deleted rows without actually deleting them.
+   * We don't like to permanently delete data. Instead, we like to leave tombstones behind so we can audit before cleaning up later. This is also very handy for syncing to data lakes. Do you know what rows were deleted in the last 15 minutes?
+   * When a row is deleted, its `status` column is just set to `dead`. 
+   * The `find`, `retrieve`, `bulkUpdate`, `bulkDelete` and `bulkPermanentlyDelete` helpers automatically deal with dead rows, pretending like they were really deleted.
+
+Note: you should extend this class to make it useful!
+
+```js
+const MariaDBCrudService = require('okanjo-app-mysql/MariaDBCrudService');
+```
+
+## Properties
+* `service.app` – (read-only) The OkanjoApp instance provided when constructed
+* `service.service` – (read-only) The MariaDBService instance managing the connection pool
+* `service.schema` – (read-only) The string name of the database schema the table is in 
+* `service.table` – (read-only) The string name of the table this service is treating as a resource collection
+* `service.idField` – (read-only) The field that is expected to be unique, like a single-column primary key.
+* `service.statusField` – (read-only) The field that is used for row status, such as `dead` statuses
+* `service.updatedField` – (read-only) The field that is automatically set to `new Date()` when updating
+* `service._createRetryCount` – (read-only) How many times a `_createWithRetry` method can attempt to create a doc before giving up 
+* `service._modifiableKeys` – (read-only) What column names are assumed to be safe to copy from user-data
+* `service._deletedStatus` – (read-only) The status to set docs to when "deleting" them
+* `service._concealDeadResources` – (read-only) Whether this service should actively prevent "deleted" (status=dead) resources from returning in _retrieve and _find  
+
+## Methods
+
+### `new MariaDBCrudService(app, options)`
+Creates a new instance. Ideally, you would extend it and call it via `super(app, options)`.
+* `app` – The OkanjoApp instance to bind to
+* `options` – Service configuration options
+  * `options.service` – (Required) The MySQLService instance managing the connection pool
+  * `options.schema` – (Optionalish) The string name of the database the table. Defaults to `service.config.database` if not defined.
+  * `options.table` – (Required) The string name of the table this service is managing
+  * `options.idField` – (Optional) The field that is expected to be unique, like a single-column primary key. Defaults to `id`.
+  * `options.statusField` – (Optional) The field that is used for row status, such as `dead` statuses. Defaults to `status`.
+  * `options.updatedField` – (Optional) The field that is automatically set to `new Date()` when updating. Defaults to `updated`.
+  * `options.createRetryCount` – (Optional) How many times a `_createWithRetry` method can attempt to create a doc before giving up. Defaults to `3`.
+  * `options.modifiableKeys` – (Optional) What column names are assumed to be safe to copy from user-data. Defaults to `[]`.
+  * `options.deletedStatus` – (Optional) The status to set docs to when "deleting" them. Defaults to `dead`.
+  * `options.concealDeadResources` – (Optional) Whether this service should actively prevent "deleted" (status=dead) resources from returning in `_retrieve`, `_find`, `_bulkUpdate`, `_bulkDelete`, and `_bulkDeletePermanently`. Defaults to `true`.
+
+### `async _createSchema(connection)`
+Hook fired during `init()` if the database schema does not exist. By default, the schema will be created.
+Override this function to change or enhance functionality. For example, use it to create stored procedures, triggers, views, etc.  
+ * `connection` – The active Connection.
+ * No return value
+ 
+### `async _updateSchema(connection)`
+Hook fired during `init()` if the database schema already exists. By default, this function does nothing. 
+Override this function to change or enhance functionality. For example, use it to create stored procedures, triggers, views, etc.  
+ * `connection` - The active Connection object.
+ * No return value
+
+### `async _createTable(connection)`
+Hook fired during `init()` if the table does not exist in the schema. By default, this function will throw an exception.
+Override this function to create your table.
+ * `connection` - The active Connection object.
+ * No return value
+
+> Note: you must override this method if you want `init` to auto-create your table. 
+
+### `async _updateTable(connection)`
+Hook fired during `init()` if the table already exists in the schema. By default, this function does nothing.
+Override this function to update your table definitions or enhance functionality.
+ * `connection` - The active Connection object.
+ * No return value
+
+### `async init()`
+Initializes the database and table. Uses the aforementioned hook functions to create or update the schema and table.
+
+### `create(data, [options,] [callback])`
+Creates a new row.
+* `data` – The row object to store
+* `options` – (Optional) Query options
+  * `options.connection` – The connection to execute the query on. Defaults to the service pool.
+  * `options.suppressCollisionError` - Internal flag to suppress automatically reporting the error if it is a collision
+* `callback(err, doc)` – (Optional) Function fired when completed
+  * `err` – Error, if occurred
+  * `doc` – The row that was created
+* Returns `Promise<doc>`
+
+### `createWithRetry(data, objectClosure, [options,] [callback])`
+Creates a new row after calling the given object closure. This closure is fired again (up to `service._createRetryCount` times) in the event there is a collision. 
+This is useful when you store rows that have unique fields (e.g. an API key) that you can regenerate in that super rare instance that you collide
+* `data` – The row object to store
+* `async objectClosure(data, attempt)` – Function fired before saving the new row. Set changeable, unique properties here
+  * `data` – The row object to store
+  * `attempt` – The attempt number, starting at `0`
+* `options` – (Optional) Query options
+  * `options.connection` – The connection to execute the query on. Defaults to the service pool.
+* `callback(err, doc)` – (Optional) Function fired when completed
+  * `err` – Error, if occurred
+  * `doc` – The new row that was created
+* Returns `Promise<doc>`
+
+### `retrieve(id, [options], [callback])`
+Retrieves a single row from the table.
+* `id` – The id of the row.
+* `options` – (Optional) Query options
+  * `options.connection` – The connection to execute the query on. Defaults to the service pool.
+* `callback(err, doc)` – (Optional) Function fired when completed
+  * `err` – Error, if occurred
+  * `doc` – The row if found or `null` if not found
+* Returns `Promise<doc>`
+  
+### `find(criteria, [options], [callback])`
+Finds rows matching the given criteria. Supports pagination, field selection and more!
+* `criteria` – Object with field-value pairs. Supports some special [mongo-like operators](#special-operators)
+* `options` – (Optional) Additional query options
+  * `options.skip` – Offsets the result set by this many records (pagination). Default is unset.  
+  * `options.take` – Returns this many records (pagination). Default is unset.
+  * `options.fields` – Returns only the given fields (same syntax as mongo selects, e.g. `{ field: 1, exclude: 0 }` ) Default is unset.
+  * `options.sort` – Sorts the results by the given fields (same syntax as mongo sorts, e.g. `{ field: 1, reverse: -1 }`). Default is unset.
+  * `options.conceal` – Whether to conceal dead resources. Default is `true`. 
+  * `options.mode` – (Internal) Query mode, used to toggle query modes like SELECT COUNT(*) queries
+  * `options.connection` – The connection to execute the query on. Defaults to the service pool.
+* `callback(err, rows)` – (Optional) Fired when completed
+  * `err` – Error, if occurred
+  * `rows` – The array of rows returned or `[]` if none found.
+* Returns `Promise<rows>`
+
+#### Special operators
+Mongo uses a JSON-like query syntax that is robust and easy to use. MySQL uses SQL, which means translating from JSON isn't wonderful.
+Instead, we opted to support some mongo-like operators for consistency with our okanjo-app-mongo version of CrudService.
+
+* `{ field: value }` – Equal – Translates to `WHERE field = value`
+* `{ field: [ values... ]` – IN – Translates to `WHERE field IN (values...)`
+* `{ field: { $ne: value } }` - Not-Equal – Translates to `WHERE field != value`
+* `{ field: { $ne: [ values... ] } }` - Not-IN– Translates to `WHERE field NOT IN (values...)`
+* `{ field: { $gt: value } }` - Greater-Than – Translates to `WHERE field > value`
+* `{ field: { $gte: value } }` - Greater-Than-Or-Equal – Translates to `WHERE field >= value`
+* `{ field: { $lt: value } }` - Less-Than – Translates to `WHERE field < value`
+* `{ field: { $lte: value } }` - Less-Than-Or-Equal – Translates to `WHERE field <= value`
+
+### `count(criteria, [options], [callback])`
+Counts the number of matched records.
+* `criteria` – Object with field-value pairs. Supports some special [mongo-like operators](#special-operators)
+* `options` – (Optional) Additional query options
+  * `options.conceal` – Whether to conceal dead resources. Default is `true`.
+  * `options.connection` – The connection to execute the query on. Defaults to the service pool.
+* `callback(err, count)` – (Optional) Fired when completed
+  * `err` – Error, if occurred
+  * `count` – The number of matched rows or `0` if none found.
+* Returns `Promise<count>`
+
+### `update(row, [data], [options], [callback])`
+Updates the given row and optionally applies user-modifiable fields, if service is configured to do so.
+* `doc` – The row to update. Must include configured id field.  
+* `data` – (Optional) Additional pool of key-value fields. Only keys that match `service._modifiableKeys` will be copied if present. Useful for passing in a request payload and copying over pre-validated data as-is.
+* `options` – (Optional) Query options
+  * `options.connection` – The connection to execute the query on. Defaults to the service pool.  
+* `callback(err, rows)` – (Optional) Fired when completed
+  * `err` – Error, if occurred
+  * `rows` – The MySQL response. Contains properties like `rows.result.getAffectedRowsCount()` and `res.result.getWarnings()`.
+* Returns `Promise<rows>`
+  
+### `bulkUpdate(criteria, data, [options], [callback])`
+Updates all rows matching the given criteria with the new column values.
+* `criteria` – Object with field-value pairs. Supports some special [mongo-like operators](#special-operators)
+* `data` – Field-value pairs to set on matched rows
+* `options` – (Optional) Additional query options
+  * `options.conceal` – Whether to conceal dead resources. Default is `true`.
+  * `options.connection` – The connection to execute the query on. Defaults to the service pool.
+* `callback(err, rows)` – (Optional) Fired when completed
+  * `err` – Error, if occurred
+  * `rows` – The MySQL response. Contains properties like `rows.result.getAffectedRowsCount()` and `res.result.getWarnings()`.
+* Returns `Promise<rows>`
+
+### `delete(row, [options], [callback])`
+Fake-deletes a row from the table. In reality, it just sets its status to `dead` (or whatever the value of `service._deletedStatus` is).
+* `doc` – The row to delete. Must include configured id field.
+* `options` – (Optional) Query options
+  * `options.connection` – The connection to execute the query on. Defaults to the service pool.  
+* `callback(err, rows)` – (Optional) Fired when completed
+  * `err` – Error, if occurred
+  * `rows` – The MySQL response. Contains properties like `rows.result.getAffectedRowsCount()` and `res.result.getWarnings()`.
+* Returns `Promise<rows>`
+  
+### `bulkDelete(criteria, [options], [callback])`
+Fake-deletes all rows matching the given criteria.
+* `criteria` – Object with field-value pairs. Supports some special [mongo-like operators](#special-operators)
+* `options` – (Optional) Additional query options
+  * `options.conceal` – Whether to conceal dead resources. Default is `true`.
+  * `options.connection` – The connection to execute the query on. Defaults to the service pool.
+* `callback(err, rows)` – (Optional) Fired when completed
+  * `err` – Error, if occurred
+  * `rows` – The MySQL response. Contains properties like `rows.result.getAffectedRowsCount()` and `res.result.getWarnings()`.
+* Returns `Promise<rows>`
+
+### `deletePermanently(row, [options], [callback])`
+Permanently deletes a row from the table. This is destructive!
+* `doc` – The row to delete. Must include configured id field.
+* `options` – (Optional) Query options
+  * `options.connection` – The connection to execute the query on. Defaults to the service pool.   
+* `callback(err, rows)` – (Optional) Fired when completed
+  * `err` – Error, if occurred
+  * `rows` – The MySQL response. Contains properties like `rows.result.getAffectedRowsCount()` and `res.result.getWarnings()`.
+* Returns `Promise<rows>`
+
+### `bulkDeletePermanently(criteria, [options], [callback])`
+Permanently deletes all rows matching the given criteria.
+* `criteria` – Object with field-value pairs. Supports some special [mongo-like operators](#special-operators)
+* `options` – (Optional) Additional query options
+  * `options.conceal` – Whether to conceal dead resources. Default is `true`.
+  * `options.connection` – The connection to execute the query on. Defaults to the service pool.
+* `callback(err, rows)` – (Optional) Fired when completed
+  * `err` – Error, if occurred
+  * `rows` – The MySQL response. Contains properties like `rows.result.getAffectedRowsCount()` and `res.result.getWarnings()`.
+* Returns `Promise<rows>`
+  
+## Events
+
+This class does not emit events.
+
+
 # CollectionCrudService
 
 Base class for building services based on MySQL document collections. The idea of using CollectionCrudService is to:
@@ -374,6 +674,10 @@ Base class for building services based on MySQL document collections. The idea o
    * The `find`, `retrieve`, `bulkUpdate`, `bulkDelete` and `bulkPermanentlyDelete` helpers automatically deal with dead docs, pretending like they were really deleted.
 
 Note: you should extend this class to make it useful!
+
+```js
+const CollectionCrudService = require('okanjo-app-mysql/CollectionCrudService');
+```
 
 ## Properties
 * `service.app` – (read-only) The OkanjoApp instance provided when constructed
@@ -611,22 +915,26 @@ Permanently deletes all docs matching the given criteria.
 This class does not emit events.
 
 
-# CrudService vs CollectionCrudService
+# CrudService vs MariaDBCrudService vs CollectionCrudService
  
 Which service to use? In general, MySQL collections are a far worse option. 
 
 MySQL's document store system should be treated as a novelty until it's feature parity and performance can match 
 other NoSQL systems such as MongoDB.
 
-By and large, the two services offer identical API's. The only differences pertain to response result features and initialization.
+By and large, the three services offer identical API's. The only differences pertain to response result features and initialization.
 
-Differences between the two services:
+Differences between the services:
 
+ * Drivers
+   * MySQLService, CrudService, and CollectionCrudService use the Oracle MySQL connector.
+   * MariaDBService and MariaDBCrudService use the MariaDB connector. MariaDB can access both MySQL and MariaDB servers.
  * Responses
    * CrudService will consistently return a `rows` array with query Result method accessors.
+   * MariaDBCrudService will return `rows` with a `meta` property, or a response object if not a SELECT query.
    * CollectionCrudService will return the docs array, with no built-in ability to access the query Result object.
  * Count 
-   * CrudService performs a `COUNT(*)` statement
+   * CrudService and MariaDBCrudService performs a `COUNT(*)` statement
    * CollectionCrudService uses `(await find({})).length` to simulate this
  * CreateWithRetry
    * CollectionCrudService can't really make much use of this feature since MySQL collections do not support unique indices.
@@ -644,23 +952,25 @@ Before you can run the tests, you'll need a working MySQL server. We suggest usi
 For example:
 
 ```bash
+docker pull mariadb:10.3
 docker pull mysql:5.7
 docker pull mysql:8
 docker run -d -p 3306:3306 -p 33060:33060 -e MYSQL_ROOT_PASSWORD=unittest mysql:5.7
 docker run -d -p 3307:3306 -p 33070:33060 -e MYSQL_ROOT_PASSWORD=unittest mysql:8
+docker run -d -p 3308:3306 -e MYSQL_ROOT_PASSWORD=unittest mariadb:10.3
 
 ```
 
 To run unit tests and code coverage:
 ```sh
-MYSQL_HOST=localhost MYSQL_PORT=33060 MYSQL_USER=root MYSQL_PASS=unittest npm run report
-MYSQL_HOST=localhost MYSQL_PORT=33070 MYSQL_USER=root MYSQL_PASS=unittest npm run report
+MYSQL_HOST=localhost MARIA_PORT=3308 MYSQL_PORT=33060 MYSQL_USER=root MYSQL_PASS=unittest npm run report
+MYSQL_HOST=localhost MARIA_PORT=3308 MYSQL_PORT=33070 MYSQL_USER=root MYSQL_PASS=unittest npm run cover_noclean
 ```
 
 Update the `MYSQL_*` environment vars to match your docker host (e.g. host, port, user, pass etc)
 
 This will perform:
-* Unit tests
+* Unit tests against MariaDB 10.3, MySQL 5.7 and MySQL 8
 * Code coverage report
 * Code linting
 

@@ -4,7 +4,7 @@ This is an example for how you can use the CollectionCrudService in an app.
 
 Run like so, replacing your mysql info for your test server:
 ```sh
-MYSQL_HOST=localhost MYSQL_PORT=33060 MYSQL_USER=root MYSQL_PASS=unittest node docs/example-relational-app/index.js
+MYSQL_HOST=localhost MYSQL_PORT=3306 MYSQL_USER=root MYSQL_PASS=unittest node docs/example-mariadb-app/index.js
 ```
 
 Replace the values for your test environment.
@@ -17,86 +17,86 @@ Apple: { id: 'apple',
   name: 'Apple',
   color: 'red',
   status: 'active',
-  created: 2019-04-10T21:15:07.447Z,
-  updated: 2019-04-10T21:15:07.447Z }
+  created: 2019-04-12T21:46:00.449Z,
+  updated: 2019-04-12T21:46:00.449Z }
 Grape: { id: 'grape',
   name: 'Grape',
   color: 'green',
   status: 'active',
-  created: 2019-04-10T21:15:07.478Z,
-  updated: 2019-04-10T21:15:07.478Z }
+  created: 2019-04-12T21:46:00.455Z,
+  updated: 2019-04-12T21:46:00.455Z }
 
 Retrieving records...
 Apple: { id: 'apple',
   name: 'Apple',
   color: 'red',
   status: 'active',
-  created: 2019-04-10T21:15:07.000Z,
-  updated: 2019-04-10T21:15:07.000Z }
+  created: 2019-04-12T21:46:00.000Z,
+  updated: 2019-04-12T21:46:00.000Z }
 Grape: { id: 'apple',
   name: 'Apple',
   color: 'red',
   status: 'active',
-  created: 2019-04-10T21:15:07.000Z,
-  updated: 2019-04-10T21:15:07.000Z }
+  created: 2019-04-12T21:46:00.000Z,
+  updated: 2019-04-12T21:46:00.000Z }
 
 Finding records...
 Fruit: [ { id: 'apple',
     name: 'Apple',
     color: 'red',
     status: 'active',
-    created: 2019-04-10T21:15:07.000Z,
-    updated: 2019-04-10T21:15:07.000Z },
+    created: 2019-04-12T21:46:00.000Z,
+    updated: 2019-04-12T21:46:00.000Z },
   { id: 'grape',
     name: 'Grape',
     color: 'green',
     status: 'active',
-    created: 2019-04-10T21:15:07.000Z,
-    updated: 2019-04-10T21:15:07.000Z } ]
+    created: 2019-04-12T21:46:00.000Z,
+    updated: 2019-04-12T21:46:00.000Z } ]
 
 Updating records...
 Apple: { id: 'apple',
   name: 'Green Apple',
   color: 'green',
   status: 'active',
-  created: 2019-04-10T21:15:07.000Z,
-  updated: 2019-04-10T21:15:07.604Z }
+  created: 2019-04-12T21:46:00.000Z,
+  updated: 2019-04-12T21:46:00.470Z }
 Grape: { id: 'apple',
   name: 'Purple Grape',
   color: 'purple',
   status: 'active',
-  created: 2019-04-10T21:15:07.000Z,
-  updated: 2019-04-10T21:15:07.635Z }
+  created: 2019-04-12T21:46:00.000Z,
+  updated: 2019-04-12T21:46:00.474Z }
 
 Deleting doc...
 Apple: { id: 'apple',
   name: 'Green Apple',
   color: 'green',
   status: 'dead',
-  created: 2019-04-10T21:15:07.000Z,
-  updated: 2019-04-10T21:15:07.664Z }
+  created: 2019-04-12T21:46:00.000Z,
+  updated: 2019-04-12T21:46:00.479Z }
 
 Finding records...
 Fruit: [ { id: 'grape',
     name: 'Grape',
     color: 'green',
     status: 'active',
-    created: 2019-04-10T21:15:07.000Z,
-    updated: 2019-04-10T21:15:07.000Z } ]
+    created: 2019-04-12T21:46:00.000Z,
+    updated: 2019-04-12T21:46:00.000Z } ]
 
 Finding all records...
 Fruit: [ { id: 'apple',
     name: 'Green Apple',
     color: 'green',
     status: 'dead',
-    created: 2019-04-10T21:15:07.000Z,
-    updated: 2019-04-10T21:15:07.000Z },
+    created: 2019-04-12T21:46:00.000Z,
+    updated: 2019-04-12T21:46:00.000Z },
   { id: 'grape',
     name: 'Grape',
     color: 'green',
     status: 'active',
-    created: 2019-04-10T21:15:07.000Z,
-    updated: 2019-04-10T21:15:07.000Z } ]
+    created: 2019-04-12T21:46:00.000Z,
+    updated: 2019-04-12T21:46:00.000Z } ]
 
 Permanently delete record..
 
@@ -105,8 +105,8 @@ Fruit: [ { id: 'grape',
     name: 'Grape',
     color: 'green',
     status: 'active',
-    created: 2019-04-10T21:15:07.000Z,
-    updated: 2019-04-10T21:15:07.000Z } ]
+    created: 2019-04-12T21:46:00.000Z,
+    updated: 2019-04-12T21:46:00.000Z } ]
 
 Permanently delete all records...
 1 docs affected

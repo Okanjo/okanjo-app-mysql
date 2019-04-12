@@ -1,7 +1,7 @@
 {
   "name": "okanjo-app-mysql",
-  "version": "4.1.0",
-  "description": "Service for interfacing with MySQL",
+  "version": "4.2.0",
+  "description": "Service for interfacing with MySQL or MariaDB",
   "main": "MySQLService.js",
   "scripts": {
     "clean": "rm -rf .nyc_output coverage",
@@ -9,7 +9,8 @@
     "cover": "node_modules/.bin/nyc node_modules/mocha/bin/_mocha --exit",
     "cover_noclean": "node_modules/.bin/nyc --clean false node_modules/mocha/bin/_mocha --exit",
     "lint": "node_modules/.bin/eslint .",
-    "report": "npm run cover && npm run lint"
+    "report": "npm run cover && npm run lint",
+    "report_typical": "MARIA_PORT=3308 MYSQL_PORT=33060 GENERATE_IDS=1 npm run report && MARIA_PORT=3308 MYSQL_PORT=33070 GENERATE_IDS=0 npm run cover_noclean"
   },
   "repository": {
     "type": "git",
@@ -19,6 +20,7 @@
     "Okanjo",
     "OkanjoApp",
     "MySQL",
+    "MariaDB",
     "Database"
   ],
   "author": "Okanjo Partners Inc",
@@ -35,7 +37,8 @@
   },
   "dependencies": {
     "@mysql/xdevapi": "^8.0.15",
-    "base-id": "^2.1.0"
+    "base-id": "^2.1.0",
+    "mariadb": "^2.0.3"
   },
   "nyc": {
     "reporter": [
