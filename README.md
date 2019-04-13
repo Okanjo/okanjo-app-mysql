@@ -174,7 +174,7 @@ Creates a new mysql service instance.
   * `config.port` – Server port
   * `config.user` – Username to login as 
   * `config.password` – Password for the user 
-  * `config.datbase` – (optional) Sets the context database if given.
+  * `config.database` – (optional) Sets the context database if given.
   * See [connection options](https://mariadb.com/kb/en/library/connector-nodejs-promise-api/#connection-options) for additional connection/pool options.
 
 ### `async service.connect()`
