@@ -27,7 +27,7 @@ Note: requires the [`okanjo-app`](https://github.com/okanjo/okanjo-app) module.
  * Node v10+ only (unless you polyfill Promise.prototype.finally support yourself)
  * Changed MySQL driver from [mysqljs/mysql](https://github.com/mysqljs/mysql) to [mysql/mysql-connector-nodejs](https://github.com/mysql/mysql-connector-nodejs)
  * MySQLService:
-   * `config` options have changed. See [MySQLService](#MySQLService) for options.
+   * `config` options have changed. See [MySQLService](#mysqlservice) for options.
    * `pool` property has been removed. A new property `client` basically replaces the pool.
    * `query` signature has changed from (query, options, callback) to (sql, args, callback, options)
    * `wrapQuery` has been removed
@@ -164,7 +164,7 @@ const MariaDBService = require('okanjo-app-mysql/MariaDBService');
 
 ## Methods
 
-### `new MySQLService(app, [config])`
+### `new MariaDBService(app, [config])`
 
 Creates a new mysql service instance.
 
@@ -475,7 +475,7 @@ const MariaDBCrudService = require('okanjo-app-mysql/MariaDBCrudService');
 Creates a new instance. Ideally, you would extend it and call it via `super(app, options)`.
 * `app` – The OkanjoApp instance to bind to
 * `options` – Service configuration options
-  * `options.service` – (Required) The MySQLService instance managing the connection pool
+  * `options.service` – (Required) The MariaDBService instance managing the connection pool
   * `options.schema` – (Optionalish) The string name of the database the table. Defaults to `service.config.database` if not defined.
   * `options.table` – (Required) The string name of the table this service is managing
   * `options.idField` – (Optional) The field that is expected to be unique, like a single-column primary key. Defaults to `id`.
