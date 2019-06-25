@@ -1,5 +1,6 @@
 "use strict";
 
+const debug = require('debug')('mariadbservice');
 const MariaDB = require('mariadb');
 
 /**
@@ -29,6 +30,7 @@ class MariaDBService {
      */
     async connect() {
         // Luckily, all we have to do here is define the pool
+        debug('Starting connection pool');
         this.pool = MariaDB.createPool(this.config);
     }
 
@@ -37,6 +39,7 @@ class MariaDBService {
      * @returns {Promise<void>}
      */
     async close() {
+        debug('Closing connection pool');
         if (this.pool) await this.pool.end();
     }
 
@@ -49,7 +52,6 @@ class MariaDBService {
      * @returns {Promise<*>}
      */
     query(sql, args, callback, options) { // eslint-disable-line no-unused-vars
-
         return new Promise(async (resolve, reject) => {
 
             // Decipher args
@@ -82,8 +84,10 @@ class MariaDBService {
             // if a session was given, resolve it otherwise fetch a new session from the pool
             let resolveConnection;
             if (_options && _options.connection) {
+                debug('Using supplied connection for query');
                 resolveConnection = Promise.resolve(_options.connection);
             } else {
+                debug('Getting a connection from the pool');
                 resolveConnection = this.getConnection();
             }
 
@@ -93,6 +97,7 @@ class MariaDBService {
                     connection = conn;
 
                     // execute the query
+                    debug('Executing query:\n%s\nArguments:\n%O', _sql, _args);
                     return connection.query(_sql, _args);
                 })
                 .then(res => {
@@ -105,6 +110,8 @@ class MariaDBService {
                         value: meta
                     });
 
+                    debug('Query completed');
+
                     // return the results if successful
                     if (_callback) return setImmediate(() => _callback(null, res));
                     return resolve(res);
@@ -112,6 +119,7 @@ class MariaDBService {
                 .catch(async err => {
                     // Report error if not suppressed
                     if (!suppress || err.errno !== suppress) {
+                        debug('Query failed');
                         await this.app.report('MariaDBService: Failed to execute query', err, { sql: _sql, args: _args, options: _options });
                     }
 
@@ -121,6 +129,7 @@ class MariaDBService {
                 .finally(() => {
                     // release the connection back to the pool if generated for this query
                     if (connection && (!_options || !_options.connection)) {
+                        debug('Releasing connection back to the pool');
                         return connection.end();
                     }
                 })

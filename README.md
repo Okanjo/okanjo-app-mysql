@@ -938,6 +938,12 @@ Differences between the services:
    * CollectionCrudService uses `(await find({})).length` to simulate this
  * CreateWithRetry
    * CollectionCrudService can't really make much use of this feature since MySQL collections do not support unique indices.
+   
+## Debugging
+Both MariaDBService and MySQLService utilize the [debug](https://www.npmjs.com/package/debug) module for service-level diagnostics. 
+
+ * For MariaDBService debugging, set the environment variable `DEBUG=mariadbservice`
+ * For MySQLService debugging, set the environment variable `DEBUG=mysqlservice` 
 
 ## Extending and Contributing 
 

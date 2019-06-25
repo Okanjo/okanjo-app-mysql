@@ -1,5 +1,6 @@
 "use strict";
 
+const debug = require('debug')('mysqlservice');
 const MySQL = require('@mysql/xdevapi');
 
 /**
@@ -37,6 +38,7 @@ class MySQLService {
      */
     async connect() {
         // Luckily, all we have to do here is define the pool
+        debug('Starting connection pool');
         this.client = MySQL.getClient(this.config.session, this.config.client);
     }
 
@@ -45,6 +47,7 @@ class MySQLService {
      * @returns {Promise<void>}
      */
     async close() {
+        debug('Closing connection pool');
         if (this.client) await this.client.close();
     }
 
@@ -108,10 +111,15 @@ class MySQLService {
             let res;            // query response to get additional info about the query
 
             try {
+                debug('Executing query:\n%s\nArguments:\n%O',
+                    query.getRawStatement(),
+                    query
+                );
                 res = await query.execute(
                     row => records.push(row),
                     colGroup => cols = cols.concat(colGroup)
                 );
+                debug('Query completed');
 
                 rows = records.map((raw) => {
                     const row = {};
@@ -175,8 +183,10 @@ class MySQLService {
 
             // if a session was given, resolve it otherwise fetch a new session from the pool
             if (options && options.session) {
+                debug('Using supplied session for query');
                 resolveSession = Promise.resolve(options.session);
             } else {
+                debug('Getting a new session for query');
                 resolveSession = this.client.getSession();
             }
 
@@ -209,6 +219,7 @@ class MySQLService {
                 .finally(() => {
                     // close the session if one was pulled for this operation
                     if (session && (!options || !options.session)) {
+                        debug('Closing query session');
                         return session.close();
                     }
                 })

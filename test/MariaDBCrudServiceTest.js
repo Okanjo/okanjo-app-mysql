@@ -3,7 +3,7 @@
 
 const should = require('should');
 
-describe('CrudService', () => {
+describe('MariaDBCrudService', () => {
 
     const MariaDBService = require('../MariaDBService');
     const MariaDBCrudService = require('../MariaDBCrudService');
