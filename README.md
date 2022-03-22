@@ -1,6 +1,6 @@
 # Okanjo MySQL Service
 
-[![Build Status](https://travis-ci.org/Okanjo/okanjo-app-mysql.svg?branch=master)](https://travis-ci.org/Okanjo/okanjo-app-mysql) [![Coverage Status](https://coveralls.io/repos/github/Okanjo/okanjo-app-mysql/badge.svg?branch=master)](https://coveralls.io/github/Okanjo/okanjo-app-mysql?branch=master)
+[![Node.js CI](https://github.com/Okanjo/okanjo-app-mysql/actions/workflows/node.js.yml/badge.svg)](https://github.com/Okanjo/okanjo-app-mysql/actions/workflows/node.js.yml) [![Coverage Status](https://coveralls.io/repos/github/Okanjo/okanjo-app-mysql/badge.svg?branch=master)](https://coveralls.io/github/Okanjo/okanjo-app-mysql?branch=master)
 
 Service for interfacing with MySQL or MariaDB for the Okanjo App ecosystem.
 
@@ -15,6 +15,17 @@ npm install okanjo-app-mysql
 Note: requires the [`okanjo-app`](https://github.com/okanjo/okanjo-app) module.
 
 ## Breaking Changes
+
+### v5.0.0
+ - MySQL 5.7 not supported using MySQL's driver
+ - Port numbers must be numeric values
+ - getAffectedRowsCount is now getAffectedItemsCount
+ - MariaDB returns BigInt for count fields
+ - MySQLService.js:
+   - query.getRawStatement is now query.getSQL
+   - column.getColumnLabel is now a thing, and needs to be used in conjunction with column.getColumnName
+   - column.type is now column.getType(), and returns a string enum instead of numeric mysql binary types
+ - Updated all dependencies to latest
 
 ### v4.0.0
 
@@ -959,9 +970,7 @@ For example:
 
 ```bash
 docker pull mariadb:10.3
-docker pull mysql:5.7
 docker pull mysql:8
-docker run -d -p 3306:3306 -p 33060:33060 -e MYSQL_ROOT_PASSWORD=unittest mysql:5.7
 docker run -d -p 3307:3306 -p 33070:33060 -e MYSQL_ROOT_PASSWORD=unittest mysql:8
 docker run -d -p 3308:3306 -e MYSQL_ROOT_PASSWORD=unittest mariadb:10.3
 
@@ -969,8 +978,12 @@ docker run -d -p 3308:3306 -e MYSQL_ROOT_PASSWORD=unittest mariadb:10.3
 
 To run unit tests and code coverage:
 ```sh
-MYSQL_HOST=localhost MARIA_PORT=3308 MYSQL_PORT=33060 MYSQL_USER=root MYSQL_PASS=unittest npm run report
-MYSQL_HOST=localhost MARIA_PORT=3308 MYSQL_PORT=33070 MYSQL_USER=root MYSQL_PASS=unittest npm run cover_noclean
+MYSQL_HOST=localhost MARIA_PORT=3308 MYSQL_PORT=33070 MYSQL_USER=root MYSQL_PASS=unittest npm run report
+```
+
+For full coverage:
+```sh
+GENERATE_IDS=1 npm run report && GENERATE_IDS=0 npm run cover_noclean
 ```
 
 Update the `MYSQL_*` environment vars to match your docker host (e.g. host, port, user, pass etc)

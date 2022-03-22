@@ -339,7 +339,7 @@ class CollectionCrudService {
         options = options || {};
         options.suppressCollisionError = true;
 
-        return new Promise(async (resolve, reject) => {
+        return new Promise(async (resolve, reject) => { // eslint-disable-line no-async-promise-executor
             for (let i = 0; i < this._createRetryCount; i++) {
                 let doc;
                 try {
@@ -545,8 +545,8 @@ class CollectionCrudService {
                 if (sortExpression) q = q.sort(sortExpression);
 
                 // limit
-                if (limitExpression && limitExpression.offset) q = q.offset(limitExpression.offset);
                 if (limitExpression && limitExpression.count) q = q.limit(limitExpression.count);
+                if (limitExpression && limitExpression.offset) q = q.offset(limitExpression.offset);
 
                 // Execute it
                 return q
@@ -573,7 +573,7 @@ class CollectionCrudService {
                     collection: this.collection,
                     criteria,
                     options,
-                    where: where.length > 0 ? where.join(' AND ') /* istanbul ignore next: not worth a test */ : 'true',
+                    where: where.length > 0 ? where.join(' AND ') : /* istanbul ignore next: not worth a test */ 'true',
                     args,
                     fieldsExpression,
                     sortExpression,
@@ -688,7 +688,7 @@ class CollectionCrudService {
         if (data && typeof data === "object") {
             this._modifiableKeys.forEach(function (property) {
                 /* istanbul ignore else: too edge casey to test this way */
-                if (data.hasOwnProperty(property)) {
+                if (data[property]) {
                     doc[property] = data[property];
                 }
             });

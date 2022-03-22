@@ -1,8 +1,9 @@
 "use strict";
 
 const should = require('should');
+const { describe, it, before, after } = require('mocha');
 
-describe('CrudService', () => {
+describe('CollectionCrudService', () => {
 
     const MySQLService = require('../MySQLService');
     const CollectionCrudService = require('../CollectionCrudService');

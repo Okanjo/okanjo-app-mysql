@@ -2,6 +2,7 @@
 
 const debug = require('debug')('mysqlservice');
 const MySQL = require('@mysql/xdevapi');
+const Column = require('@mysql/xdevapi/lib/DevAPI/Column');
 
 /**
  * MYSQL Database service
@@ -39,7 +40,13 @@ class MySQLService {
     async connect() {
         // Luckily, all we have to do here is define the pool
         debug('Starting connection pool');
-        this.client = MySQL.getClient(this.config.session, this.config.client);
+        try {
+            this.client = MySQL.getClient(this.config.session, this.config.client);
+        } catch(err) {
+            await this.app.report('Failed to setup connection to MySQL', err);
+            this.client = null;
+            throw err;
+        }
     }
 
     /**
@@ -89,7 +96,7 @@ class MySQLService {
      */
     decodeParams(args, cols) {
         return args.map((val, i) => {
-            if (cols[i].type === 12) { // DATETIME
+            if (cols[i].getType() === Column.Type.DATETIME) { // DATETIME
                 return new Date(val);
             } else {
                 return val;
@@ -104,7 +111,7 @@ class MySQLService {
      * @returns {Promise<any>}
      */
     execute(query, options={}) {
-        return new Promise(async (resolve, reject) => {
+        return new Promise(async (resolve, reject) => { // eslint-disable-line no-async-promise-executor
             const records = []; // raw records received by the driver
             let cols = [];      // raw metadata about the records (e.g. columns)
             let rows = [];      // transformed rows to objects
@@ -112,7 +119,7 @@ class MySQLService {
 
             try {
                 debug('Executing query:\n%s\nArguments:\n%O',
-                    query.getRawStatement(),
+                    query.getSQL(),
                     query
                 );
                 res = await query.execute(
@@ -126,7 +133,7 @@ class MySQLService {
                     let col;
                     this.decodeParams(raw, cols).forEach((val, i) => {
                         col = cols[i];
-                        row[col.getColumnName()] = val;
+                        row[col.getColumnLabel() || /* istanbul ignore next: old driver compatibility */ col.getColumnName()] = val;
                         // console.log(col)
                     });
                     return row;
@@ -135,7 +142,7 @@ class MySQLService {
                 if (!options.suppress || options.suppress !== err.info.code) {
                     await this.app.report('MySQLService: Error executing query', err, {
                         query,
-                        sql: query.getRawStatement ? query.getRawStatement() /* istanbul ignore next: idk if this is safe, so checking method is present before firing it  */ : null,
+                        sql: query.getSQL ? query.getSQL() : /* istanbul ignore next: idk if this is safe, so checking method is present before firing it  */ null,
                         info: err.info,
                     });
                 }
@@ -187,10 +194,17 @@ class MySQLService {
                 resolveSession = Promise.resolve(options.session);
             } else {
                 debug('Getting a new session for query');
-                resolveSession = this.client.getSession();
+                try {
+                    resolveSession = this.client.getSession();
+                } catch (err) /* istanbul ignore next: oos */ {
+                    this.app.report('Failed to get session on MySQL client', err);
+                    return reject(err);
+                }
             }
 
             let session;
+            let error;
+            let response;
 
             resolveSession
                 .then(sess => {
@@ -204,23 +218,34 @@ class MySQLService {
                     if (args) query.bind(this.encodeParams(args));
 
                     // execute the query
-                    return this.execute(query, options);
-                })
-                .then(res => {
-                    // return the results if successful
-                    if (callback) return callback(null, res);
-                    return resolve(res);
-                })
-                .catch(async err => {
-                    // do not report, since this.execute should have done that
-                    if (callback) return callback(err);
-                    return reject(err);
+                    return this.execute(query, options)
+                        .then(res => {
+                            debug('Query succeeded');
+                            response = res;
+                            error = null;
+                        }, /* istanbul ignore next: oos */ err => {
+                            debug('Query failed', err);
+                            error = err;
+                            response = null;
+                        })
+                    ;
+                }, /* istanbul ignore next: oos */ err => {
+                    this.app.report('Failed to resolve session', err);
+                    error = err;
                 })
                 .finally(() => {
                     // close the session if one was pulled for this operation
                     if (session && (!options || !options.session)) {
                         debug('Closing query session');
-                        return session.close();
+                        session.close();
+                    }
+
+                    if (callback) {
+                        callback(error, response);
+                        resolve(); // callback disables rejections
+                    } else {
+                        if (error) return reject(error);
+                        return resolve(response)
                     }
                 })
             ;

@@ -52,7 +52,7 @@ class MariaDBService {
      * @returns {Promise<*>}
      */
     query(sql, args, callback, options) { // eslint-disable-line no-unused-vars
-        return new Promise(async (resolve, reject) => {
+        return new Promise((resolve, reject) => {
 
             // Decipher args
             let _sql, _args, _callback, _options, _err;
@@ -72,7 +72,7 @@ class MariaDBService {
 
             // Throw invalid argument error
             if (_err) {
-                await this.app.report('MariaDBService: Failed to execute query', _err, { sql: _sql, args: _args, options: _options });
+                this.app.report('MariaDBService: Failed to execute query', _err, { sql: _sql, args: _args, options: _options });
                 if (_callback) return setImmediate(() => _callback(_err));
                 return reject(_err);
             }

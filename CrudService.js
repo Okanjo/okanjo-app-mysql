@@ -268,7 +268,7 @@ class CrudService {
         options = options || {};
         options.suppressCollisionError = true;
 
-        return new Promise(async (resolve, reject) => {
+        return new Promise(async (resolve, reject) => { // eslint-disable-line no-async-promise-executor
             for (let i = 0; i < this._createRetryCount; i++) {
                 let doc;
                 try {
@@ -566,7 +566,7 @@ class CrudService {
         if (data && typeof data === "object") {
             this._modifiableKeys.forEach(function (property) {
                 /* istanbul ignore else: too edge casey to test this way */
-                if (data.hasOwnProperty(property)) {
+                if (data[property]) {
                     doc[property] = data[property];
                 }
             });

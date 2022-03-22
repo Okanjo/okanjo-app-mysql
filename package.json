@@ -1,6 +1,6 @@
 {
   "name": "okanjo-app-mysql",
-  "version": "4.3.0",
+  "version": "5.0.0",
   "description": "Service for interfacing with MySQL or MariaDB",
   "main": "MySQLService.js",
   "scripts": {
@@ -10,7 +10,7 @@
     "cover_noclean": "node_modules/.bin/nyc --clean false node_modules/mocha/bin/_mocha --exit",
     "lint": "node_modules/.bin/eslint .",
     "report": "npm run cover && npm run lint",
-    "report_typical": "MARIA_PORT=3308 MYSQL_PORT=33060 GENERATE_IDS=1 npm run report && MARIA_PORT=3308 MYSQL_PORT=33070 GENERATE_IDS=0 npm run cover_noclean"
+    "report_full": "GENERATE_IDS=1 npm run report && GENERATE_IDS=0 npm run cover_noclean"
   },
   "repository": {
     "type": "git",
@@ -26,26 +26,79 @@
   "author": "Okanjo Partners Inc",
   "license": "MIT",
   "devDependencies": {
-    "eslint": "^5.16.0",
-    "mocha": "^6.0.2",
-    "nyc": "^13.3.0",
-    "okanjo-app": "^2.1.0",
+    "eslint": "^8.11.0",
+    "mocha": "^9.2.2",
+    "nyc": "^15.1.0",
+    "okanjo-app": "^3.2.0",
     "should": "^13.2.3"
   },
   "peerDependencies": {
-    "okanjo-app": ">=2"
+    "okanjo-app": ">=3"
   },
   "dependencies": {
-    "@mysql/xdevapi": "^8.0.15",
-    "base-id": "^2.1.0",
-    "debug": "^4.1.1",
-    "mariadb": "^2.0.3"
+    "@mysql/xdevapi": "^8.0.28",
+    "base-id": "^3.1.0",
+    "debug": "^4.3.4",
+    "mariadb": "^3.0.0"
+  },
+  "mocha": {
+    "require": ["should","./test/env.js"],
+    "reporter": "spec",
+    "checkLeaks": true,
+    "timeout": 1000
   },
   "nyc": {
     "reporter": [
       "text-summary",
       "html",
       "lcovonly"
+    ]
+  },
+  "eslintConfig": {
+    "ignorePatterns": [
+      "/node_modules/**",
+      "/coverage/**",
+      "/.nyc_output/**"
+    ],
+    "env": {
+      "es6": true,
+      "node": true
+    },
+    "parserOptions": {
+      "ecmaVersion": 2020,
+      "sourceType": "module"
+    },
+    "plugins": [],
+    "extends": "eslint:recommended",
+    "globals": {
+      "require": true,
+      "module": true,
+      "describe": true,
+      "it": true,
+      "before": true,
+      "after": true,
+      "afterEach": true,
+      "Promise": true
+    },
+    "overrides": [
+      {
+        "files": [
+          "docs/**"
+        ],
+        "rules": {
+          "no-console": "off",
+          "no-unused-vars": "off"
+        }
+      },
+      {
+        "files": [
+          "test/*.js"
+        ],
+        "parserOptions": {
+          "sourceType": "script",
+          "no-console": "off"
+        }
+      }
     ]
   }
 }

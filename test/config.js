@@ -1,12 +1,12 @@
 "use strict";
 
 const host = process.env.MYSQL_HOST || '127.0.0.1';
-const port = process.env.MYSQL_PORT || '33060';
-const mariaPort = process.env.MARIA_PORT || '3308';
+const port = parseInt(process.env.MYSQL_PORT || '33070');
+const mariaPort = parseInt(process.env.MARIA_PORT || '3308');
 const user = process.env.MYSQL_USER || 'root';
 const password = process.env.MYSQL_PASS || 'unittest';
 const schema = process.env.MYSQL_DB || undefined;
-const generateIds = process.env.GENERATE_IDS==='1' || port === '33060';
+const generateIds = process.env.GENERATE_IDS==='1';
 
 //noinspection JSUnusedGlobalSymbols
 module.exports = {

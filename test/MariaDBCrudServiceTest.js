@@ -51,7 +51,7 @@ describe('MariaDBCrudService', () => {
             db: new MariaDBService(app, app.config.mariadb.my_database)
         };
 
-        app.connectToServices(() => {
+        app.connectToServices().then(() => {
             app.services.db.pool.should.be.ok();
 
             // Drop existing test database and table
@@ -1081,7 +1081,7 @@ describe('MariaDBCrudService', () => {
                 should(err).not.be.ok();
                 should(count).be.ok();
 
-                count.should.be.exactly(3);
+                count.should.be.exactly(3n);
 
                 done();
             });
@@ -1092,7 +1092,7 @@ describe('MariaDBCrudService', () => {
                 should(err).not.be.ok();
                 should(count).be.ok();
 
-                count.should.be.exactly(3);
+                count.should.be.exactly(3n);
 
                 done();
             });
@@ -1103,7 +1103,7 @@ describe('MariaDBCrudService', () => {
                 should(err).not.be.ok();
                 should(count).be.ok();
 
-                count.should.be.exactly(4);
+                count.should.be.exactly(4n);
 
                 done();
             });
@@ -1736,7 +1736,7 @@ describe('MariaDBCrudService', () => {
             crud.count({ id: 'txn2' }, { session: connection }, (err, count) => {
                 should(err).not.be.ok();
                 should(count).be.ok();
-                count.should.be.exactly(1);
+                count.should.be.exactly(1n);
 
                 done();
             });

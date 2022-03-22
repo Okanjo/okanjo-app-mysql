@@ -36,10 +36,21 @@ describe('MySQLService', () => {
     it('should explode if no session config given', () => {
         (() => { new MySQLService(app, {}) }).should.throw(/session/);
     });
-    //
-    // it('should explode if no session config given', () => {
-    //     (() => { new MySQLService(app, { session: {} }) }).should.throw(/client/);
-    // });
+
+    it('should explode if a non-numeric port number is given', () => {
+
+        const service = new MySQLService(app, {
+            session: {
+                host: '127.0.0.1',
+                port: '1337',
+                user: 'root',
+                pass: 'pass',
+                schema: 'irrelevant'
+            }
+        });
+
+        should(service.connect()).be.rejected();
+    });
 
     it('should be able to handle a close even if the pool has not started', async () => {
         const app = new OkanjoApp({ mysql: { client: {}, session: {} } });
@@ -49,6 +60,16 @@ describe('MySQLService', () => {
 
     it('should query', (done) => {
         app.services.db.query('SHOW DATABASES;', (err, res) => {
+            should(err).be.exactly(null);
+            should(res).be.ok();
+            should(res).be.an.Array();
+            res.length.should.be.greaterThan(0);
+            done();
+        });
+    });
+
+    it('should query with column names', (done) => {
+        app.services.db.query('SELECT variable, value FROM sys.sys_config;', (err, res) => {
             should(err).be.exactly(null);
             should(res).be.ok();
             should(res).be.an.Array();
@@ -80,7 +101,7 @@ describe('MySQLService', () => {
             err.should.be.an.Object();
             err.info.code.should.be.exactly(1064);
             err.message.should.match(/DATATHINGS/);
-            should(res).be.exactly(undefined);
+            should(res).be.exactly(null);
             done();
         });
     });

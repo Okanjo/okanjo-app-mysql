@@ -48,7 +48,7 @@ describe('CrudService', () => {
             db: new MySQLService(app, app.config.mysql.my_database)
         };
 
-        app.connectToServices(() => {
+        app.connectToServices().then(() => {
             app.services.db.client.should.be.ok();
 
             // Drop existing test database and table
@@ -1296,7 +1296,7 @@ describe('CrudService', () => {
                 should(err).not.be.ok();
                 should(res).be.ok();
 
-                res.result.getAffectedRowsCount().should.be.exactly(2);
+                res.result.getAffectedItemsCount().should.be.exactly(2);
 
                 done();
             });
@@ -1310,7 +1310,7 @@ describe('CrudService', () => {
                 should(err).not.be.ok();
                 should(res).be.ok();
 
-                res.result.getAffectedRowsCount().should.be.exactly(2); // we looked at 2 rows
+                res.result.getAffectedItemsCount().should.be.exactly(2); // we looked at 2 rows
 
                 done();
             });
@@ -1321,7 +1321,7 @@ describe('CrudService', () => {
                 should(err).not.be.ok();
                 should(res).be.ok();
 
-                res.result.getAffectedRowsCount().should.be.exactly(3); // a, b, c  (dead not affected)
+                res.result.getAffectedItemsCount().should.be.exactly(3); // a, b, c  (dead not affected)
 
                 done();
             });
@@ -1332,7 +1332,7 @@ describe('CrudService', () => {
                 should(err).not.be.ok();
                 should(res).be.ok();
 
-                res.result.getAffectedRowsCount().should.be.exactly(4); // a, b, c, dead
+                res.result.getAffectedItemsCount().should.be.exactly(4); // a, b, c, dead
 
                 done();
             });
@@ -1344,7 +1344,7 @@ describe('CrudService', () => {
                 should(res).be.ok();
 
 
-                res.result.getAffectedRowsCount().should.be.exactly(4); // a, b, c, dead
+                res.result.getAffectedItemsCount().should.be.exactly(4); // a, b, c, dead
 
                 done();
             });
@@ -1356,7 +1356,7 @@ describe('CrudService', () => {
                 should(res).be.ok();
 
 
-                res.result.getAffectedRowsCount().should.be.exactly(3); // a, b, c
+                res.result.getAffectedItemsCount().should.be.exactly(3); // a, b, c
 
                 done();
             });
@@ -1453,7 +1453,7 @@ describe('CrudService', () => {
                 should(err).not.be.ok();
                 should(res).be.ok();
 
-                res.result.getAffectedRowsCount().should.be.exactly(3);
+                res.result.getAffectedItemsCount().should.be.exactly(3);
 
                 done();
             });
@@ -1464,7 +1464,7 @@ describe('CrudService', () => {
                 should(err).not.be.ok();
                 should(res).be.ok();
 
-                res.result.getAffectedRowsCount().should.be.exactly(1); // c
+                res.result.getAffectedItemsCount().should.be.exactly(1); // c
 
                 done();
             });
@@ -1585,7 +1585,7 @@ describe('CrudService', () => {
                 should(err).not.be.ok();
                 should(res).be.ok();
 
-                res.result.getAffectedRowsCount().should.be.exactly(2); // a,b
+                res.result.getAffectedItemsCount().should.be.exactly(2); // a,b
 
                 done();
             });
@@ -1596,7 +1596,7 @@ describe('CrudService', () => {
                 should(err).not.be.ok();
                 should(res).be.ok();
 
-                res.result.getAffectedRowsCount().should.be.exactly(1); // d
+                res.result.getAffectedItemsCount().should.be.exactly(1); // d
 
                 done();
             });
@@ -1607,7 +1607,7 @@ describe('CrudService', () => {
                 should(err).not.be.ok();
                 should(res).be.ok();
 
-                res.result.getAffectedRowsCount().should.be.exactly(0); // lol dead things are concealed, so duh 0
+                res.result.getAffectedItemsCount().should.be.exactly(0); // lol dead things are concealed, so duh 0
 
                 done();
             });
@@ -1618,14 +1618,14 @@ describe('CrudService', () => {
                 should(err).not.be.ok();
                 should(res).be.ok();
 
-                res.result.getAffectedRowsCount().should.be.exactly(1); // dead, c
+                res.result.getAffectedItemsCount().should.be.exactly(1); // dead, c
 
                 done();
             });
         });
 
         it('should handle errors', (done) => {
-            crud.bulkDeletePermanently({ id: -1 }, null, (err, res) => {
+            crud.bulkDeletePermanently({ created: 'BOGUS' }, null, (err, res) => {
                 should(err).be.ok();
                 should(res).not.be.ok();
 
@@ -1751,7 +1751,7 @@ describe('CrudService', () => {
                 should(err).not.be.ok();
                 should(res).be.ok();
 
-                res.result.getAffectedRowsCount().should.be.exactly(1);
+                res.result.getAffectedItemsCount().should.be.exactly(1);
 
                 done();
             });
@@ -1770,7 +1770,7 @@ describe('CrudService', () => {
             crud.bulkDelete({ id: 'txn2' }, { session }, (err, res) => {
                 should(err).not.be.ok();
 
-                res.result.getAffectedRowsCount().should.be.exactly(0);
+                res.result.getAffectedItemsCount().should.be.exactly(0);
 
                 done();
             });
@@ -1789,7 +1789,7 @@ describe('CrudService', () => {
             crud.bulkDeletePermanently({ id: 'txn' }, { session }, (err, res) => {
                 should(err).not.be.ok();
 
-                res.result.getAffectedRowsCount().should.be.exactly(1);
+                res.result.getAffectedItemsCount().should.be.exactly(1);
 
                 done();
             });
