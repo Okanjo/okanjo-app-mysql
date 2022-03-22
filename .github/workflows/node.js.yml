@@ -17,6 +17,8 @@ jobs:
     services:
       mariadb:
         image: mariadb:10.3
+        env:
+          MYSQL_ROOT_PASSWORD: unittest
         options: >-
           --health-cmd "mysqladmin -u root --password=${MYSQL_ROOT_PASSWORD} ping"
           --health-interval 10s
@@ -27,6 +29,8 @@ jobs:
           - 3308:3306
       mysql:
         image: mysql:8
+        env:
+          MYSQL_ROOT_PASSWORD: unittest
         options: >-
           --health-cmd "mysqladmin -u root --password=${MYSQL_ROOT_PASSWORD} ping"
           --health-interval 10s
