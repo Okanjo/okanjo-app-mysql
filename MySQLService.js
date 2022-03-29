@@ -31,7 +31,7 @@ class MySQLService {
         //     throw new Error('MySQLService: `config.client` must be defined on initialization!');
         // }
 
-        app._serviceConnectors.push(async () => this.connect());
+        app.registerServiceConnector(async () => this.connect());
     }
 
     /**
